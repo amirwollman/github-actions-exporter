@@ -69,7 +69,7 @@ jobs:
         uses: bold-dev/bold-action-context@main
         with:
           account: dev
-          role: github-backend-write
+          role: github-github-exporter
 
       - uses: aws-actions/configure-aws-credentials@v4
         with:
