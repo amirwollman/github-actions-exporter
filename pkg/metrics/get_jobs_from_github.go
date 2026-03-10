@@ -95,12 +95,19 @@ func getJobsFromGithub(ctx context.Context) {
 					continue
 				}
 
-				currentRunIDs[*run.ID] = struct{}{}
 				workflowName := getWorkflowName(repo, run, wfs)
+				if !isWorkflowAllowed(workflowName) {
+					continue
+				}
+
+				currentRunIDs[*run.ID] = struct{}{}
 
 				jobs := getAllJobsForRun(ctx, r[0], r[1], *run.ID)
 				for _, job := range jobs {
 					jobName := job.GetName()
+					if !isJobAllowed(jobName) {
+						continue
+					}
 					jobConclusion := job.GetConclusion()
 					runnerName := job.GetRunnerName()
 					runID := strconv.FormatInt(*run.ID, 10)

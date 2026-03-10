@@ -46,6 +46,32 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 	}
 }
 
+func isWorkflowAllowed(name string) bool {
+	allowed := config.Github.Workflows.Value()
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, w := range allowed {
+		if w == name {
+			return true
+		}
+	}
+	return false
+}
+
+func isJobAllowed(name string) bool {
+	allowed := config.Github.WorkflowJobs.Value()
+	if len(allowed) == 0 {
+		return true
+	}
+	for _, j := range allowed {
+		if j == name {
+			return true
+		}
+	}
+	return false
+}
+
 func getAllReposForOrg(ctx context.Context, orga string) []string {
 	var allRepos []string
 

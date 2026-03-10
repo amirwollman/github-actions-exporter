@@ -19,6 +19,8 @@ env:
   # FETCH_WORKFLOW_RUN_USAGE: "true"
   # FETCH_JOB_METRICS: "false"
   # WORKFLOW_RUN_WINDOW_HOURS: "12"
+  # GITHUB_WORKFLOWS: ""          # Comma-separated workflow names to monitor (empty = all)
+  # GITHUB_WORKFLOW_JOBS: ""      # Comma-separated job names to monitor (empty = all)
 
 # Secret containing GitHub credentials.
 # Expects keys: github_token (for PAT auth) or github_app_id,

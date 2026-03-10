@@ -149,6 +149,11 @@ func getWorkflowRunsFromGithub(ctx context.Context) {
 			runs := getRecentWorkflowRuns(ctx, r[0], r[1])
 
 			for _, run := range runs {
+				workflowName := getWorkflowName(repo, run, wfs)
+				if !isWorkflowAllowed(workflowName) {
+					continue
+				}
+
 				conclusion := run.GetConclusion()
 
 				fields := getRelevantFields(repo, run, wfs)
@@ -162,7 +167,6 @@ func getWorkflowRunsFromGithub(ctx context.Context) {
 					if _, seen := observedRuns[*run.ID]; !seen {
 						observedRuns[*run.ID] = struct{}{}
 
-						workflowName := getWorkflowName(repo, run, wfs)
 						event := run.GetEvent()
 
 						workflowRunsTotal.WithLabelValues(repo, workflowName, event, conclusion).Inc()

@@ -11,6 +11,8 @@ var (
 		Refresh           int64
 		Repositories      cli.StringSlice
 		Organizations     cli.StringSlice
+		Workflows         cli.StringSlice
+		WorkflowJobs      cli.StringSlice
 		APIURL            string
 		CacheSizeBytes    int64
 	}
@@ -92,6 +94,18 @@ func InitConfiguration() []cli.Flag {
 			EnvVars:     []string{"GITHUB_REPOS"},
 			Usage:       "List all repositories you want get informations. Format <orga>/<repo>,<orga>/<repo2>,<orga>/<repo3> (like test/test)",
 			Destination: &Github.Repositories,
+		},
+		&cli.StringSliceFlag{
+			Name:        "github_workflows",
+			EnvVars:     []string{"GITHUB_WORKFLOWS"},
+			Usage:       "Limit workflow-level metrics to these workflow names only. Format: <name>,<name2> (empty = all workflows)",
+			Destination: &Github.Workflows,
+		},
+		&cli.StringSliceFlag{
+			Name:        "github_workflow_jobs",
+			EnvVars:     []string{"GITHUB_WORKFLOW_JOBS"},
+			Usage:       "Limit job-level metrics to these job names only. Format: <name>,<name2> (empty = all jobs)",
+			Destination: &Github.WorkflowJobs,
 		},
 		&cli.BoolFlag{
 			Name:        "debug_profile",
