@@ -3,12 +3,12 @@ entries:
   github-actions-exporter:
   - apiVersion: v2
     appVersion: 1.0.5
-    created: "2026-03-10T13:36:00.459028571Z"
+    created: "2026-03-10T13:39:38.150060159Z"
     description: github-actions exporter for prometheus
-    digest: a7dadf290c79d6c7ffda4afe1e6d4b98538cccfa1ee9e4658f7e92f103e6c438
+    digest: 877c341d418c2c3882b5dfdc29de06b842b97a64854a194a0e52d88de943e2f3
     name: github-actions-exporter
     type: application
     urls:
-    - https://raw.githubusercontent.com/bold-dev/github-actions-exporter/gh-pages/github-actions-exporter-1.0.5.tgz
+    - https://amirwollman.github.io/github-actions-exporter/github-actions-exporter-1.0.5.tgz
     version: 1.0.5
-generated: "2026-03-10T13:36:00.458573526Z"
+generated: "2026-03-10T13:39:38.149633421Z"
