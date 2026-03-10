@@ -3,26 +3,26 @@
 image:
   repository: 471112653798.dkr.ecr.eu-central-1.amazonaws.com/github-exporter
   pullPolicy: IfNotPresent
-  tag: "v1.0.2"
+  tag: "1.0.2"
 
 nameOverride: ""
 fullnameOverride: ""
 
 env:
-  GITHUB_REFRESH: 30 # Refresh time Github Actions status in sec
-  GITHUB_ORGAS: "" # List all organisations you want get informations. <orga>,<orgb>,<orgc>
-  GITHUB_REPOS: "" # List all repositories you want get informations. <orga>/<repo>,<orga>/<repo2>,<orga>/<repo3> (like test/test)
-  PORT: 9999 # Exporter port
+  PORT: 9999
+  GITHUB_REFRESH: 30
   GITHUB_API_URL: api.github.com
-#  ENTERPRISE_NAME: "" # Needed for enterprise endpoints (/enterprises/{ENTERPRISE_NAME}/*)
-#  EXPORT_FIELDS: "repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status"  # A comma separated list of fields for workflow metrics that should be exported
-#  For the github authentications need to create a secret by default called actions-exporter
-#  for authentication via github personal token
-#                key: github_token
-#  for authentication via github app authentication
-#                key: github_app_id
-#                key: github_app_installation_id
-#                key: github_app_private_key
+  GITHUB_ORGAS: ""
+  GITHUB_REPOS: ""
+  # ENTERPRISE_NAME: ""
+  # EXPORT_FIELDS: "repo,id,node_id,head_branch,head_sha,run_number,run_attempt,workflow_id,workflow,event,status"
+  # FETCH_WORKFLOW_RUN_USAGE: "true"
+  # FETCH_JOB_METRICS: "false"
+  # WORKFLOW_RUN_WINDOW_HOURS: "12"
+
+# Secret containing GitHub credentials.
+# Expects keys: github_token (for PAT auth) or github_app_id,
+# github_app_installation_id, github_app_private_key (for App auth).
 secret:
   name: "actions-exporter"
 
@@ -30,15 +30,9 @@ serviceMonitor:
   enabled: yes
   labels:
     release: prometheus
-  # Set how frequently Prometheus should scrape
   interval: 30s
-  # Set the namespace the ServiceMonitor should be deployed
   # namespace: monitoring
-  # Set labels for the ServiceMonitor, use this to define your scrape label for Prometheus Operator
-  # labels:
-  # Set timeout for scrape
   # timeout: 10s
-  # Set of labels to transfer on the Kubernetes Service onto the target.
   # targetLabels: []
   # metricRelabelings: []
 
@@ -47,28 +41,14 @@ imagePullSecrets: []
 podAnnotations: {}
 
 podSecurityContext: {}
-#  fsGroup: 2000
 
 securityContext: {}
-#  capabilities:
-#    drop:
-#    - ALL
-#  readOnlyRootFilesystem: true
-#  runAsNonRoot: true
-#  runAsUser: 1000
 
 service:
   type: ClusterIP
   port: 9999
 
-
 resources: {}
-#  limits:
-#    cpu: 300m
-#    memory: 128Mi
-#  requests:
-#    cpu: 100m
-#    memory: 128Mi
 
 nodeSelector: {}
 

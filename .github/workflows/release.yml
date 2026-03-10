@@ -113,9 +113,31 @@ jobs:
           cat ${CHART_DIR}/Chart.yaml
           echo ""
           echo "--- values.yaml (image section) ---"
-          head -6 ${CHART_DIR}/values.yaml
+          head -8 ${CHART_DIR}/values.yaml
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add charts/
           git diff --cached --quiet || (git commit -m "chore: bump chart to v${APP_VERSION}" && git push origin main)
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+
+      - name: Publish Helm chart to gh-pages
+        run: |
+          APP_VERSION="${{ steps.version.outputs.full }}"
+          CHART_DIR="charts/github-actions-exporter"
+
+          git fetch origin gh-pages
+          git worktree add /tmp/gh-pages origin/gh-pages
+
+          helm package "${CHART_DIR}" -d /tmp/gh-pages
+          helm repo index /tmp/gh-pages --url https://raw.githubusercontent.com/bold-dev/github-actions-exporter/gh-pages/
+
+          cd /tmp/gh-pages
+          git add .
+          git diff --cached --quiet || (git commit -m "chart: publish v${APP_VERSION}" && git push origin HEAD:gh-pages)
+
+          echo "==============================="
+          echo "Chart v${APP_VERSION} published to gh-pages"
+          echo "==============================="
