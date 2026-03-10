@@ -134,7 +134,8 @@ jobs:
           git worktree add /tmp/gh-pages origin/gh-pages
 
           helm package "${CHART_DIR}" -d /tmp/gh-pages
-          helm repo index /tmp/gh-pages --url https://raw.githubusercontent.com/bold-dev/github-actions-exporter/gh-pages/
+          touch /tmp/gh-pages/.nojekyll
+          helm repo index /tmp/gh-pages --url https://refactored-giggle-y7k5gyq.pages.github.io/
 
           cd /tmp/gh-pages
           git add .
