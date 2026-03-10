@@ -124,23 +124,21 @@ jobs:
       - name: Install Helm
         uses: azure/setup-helm@v3
 
-      - name: Publish Helm chart to gh-pages
+      - name: Publish Helm chart to ECR (OCI)
         run: |
           APP_VERSION="${{ steps.version.outputs.full }}"
           APP_VERSION="${APP_VERSION#v}"
           CHART_DIR="charts/github-actions-exporter"
 
-          git fetch origin gh-pages
-          git worktree add /tmp/gh-pages origin/gh-pages
+          aws ecr describe-repositories --repository-names github-actions-exporter-chart 2>/dev/null || \
+            aws ecr create-repository --repository-name github-actions-exporter-chart
 
-          helm package "${CHART_DIR}" -d /tmp/gh-pages
-          touch /tmp/gh-pages/.nojekyll
-          helm repo index /tmp/gh-pages --url https://refactored-giggle-y7k5gyq.pages.github.io/
+          aws ecr get-login-password --region ${{ steps.context.outputs.region }} | \
+            helm registry login --username AWS --password-stdin ${{ env.REGISTRY }}
 
-          cd /tmp/gh-pages
-          git add .
-          git diff --cached --quiet || (git commit -m "chart: publish v${APP_VERSION}" && git push origin HEAD:gh-pages)
+          helm package "${CHART_DIR}" -d /tmp
+          helm push /tmp/github-actions-exporter-${APP_VERSION}.tgz oci://${{ env.REGISTRY }}
 
           echo "==============================="
-          echo "Chart v${APP_VERSION} published to gh-pages"
+          echo "Chart v${APP_VERSION} pushed to oci://${{ env.REGISTRY }}/github-actions-exporter"
           echo "==============================="
