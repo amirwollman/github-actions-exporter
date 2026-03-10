@@ -3,7 +3,7 @@
 image:
   repository: 471112653798.dkr.ecr.eu-central-1.amazonaws.com/github-exporter
   pullPolicy: IfNotPresent
-  tag: "1.0.4"
+  tag: "1.0.5"
 
 nameOverride: ""
 fullnameOverride: ""
