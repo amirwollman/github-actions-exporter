@@ -13,29 +13,40 @@ import (
 )
 
 var (
-	runnersOrganizationGauge = prometheus.NewGaugeVec(
+	runnersOrganizationStatusGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_runner_organization_status",
-			Help: "runner status",
+			Help: "Organization runner online status (1=online, 0=offline)",
 		},
-		[]string{"organization", "os", "name", "id", "busy"},
+		[]string{"organization", "os", "name", "id"},
+	)
+	runnersOrganizationBusyGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "github_runner_organization_busy",
+			Help: "Organization runner busy status (1=busy, 0=idle)",
+		},
+		[]string{"organization", "os", "name", "id"},
 	)
 )
 
-func getAllOrgRunners(orga string) []*github.Runner {
+func getAllOrgRunners(ctx context.Context, orga string) []*github.Runner {
 	var runners []*github.Runner
 	opt := &github.ListOptions{PerPage: 200}
 
 	for {
-		resp, rr, err := client.Actions.ListOrganizationRunners(context.Background(), orga, opt)
+		resp, rr, err := client.Actions.ListOrganizationRunners(ctx, orga, opt)
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListOrganizationRunners ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			time.Sleep(time.Until(rl_err.Rate.Reset.Time))
+			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+				return runners
+			}
 			continue
 		} else if err != nil {
 			log.Printf("ListOrganizationRunners error for org %s: %s", orga, err.Error())
+			scrapeErrorsTotal.WithLabelValues("runners_organization").Inc()
 			return runners
 		}
+		updateRateLimit(rr)
 
 		runners = append(runners, resp.Runners...)
 		if rr.NextPage == 0 {
@@ -46,21 +57,33 @@ func getAllOrgRunners(orga string) []*github.Runner {
 	return runners
 }
 
-// getRunnersOrganizationFromGithub - return information about runners and their status for an organization
-func getRunnersOrganizationFromGithub() {
+func getRunnersOrganizationFromGithub(ctx context.Context) {
 	for {
+		start := time.Now()
+		runnersOrganizationStatusGauge.Reset()
+		runnersOrganizationBusyGauge.Reset()
+
 		for _, orga := range config.Github.Organizations.Value() {
-			runners := getAllOrgRunners(orga)
+			runners := getAllOrgRunners(ctx, orga)
 			for _, runner := range runners {
+				labels := []string{orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)}
 				if runner.GetStatus() == "online" {
-					runnersOrganizationGauge.WithLabelValues(orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), strconv.FormatBool(runner.GetBusy())).Set(1)
+					runnersOrganizationStatusGauge.WithLabelValues(labels...).Set(1)
 				} else {
-					runnersOrganizationGauge.WithLabelValues(orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), strconv.FormatBool(runner.GetBusy())).Set(0)
+					runnersOrganizationStatusGauge.WithLabelValues(labels...).Set(0)
+				}
+				if runner.GetBusy() {
+					runnersOrganizationBusyGauge.WithLabelValues(labels...).Set(1)
+				} else {
+					runnersOrganizationBusyGauge.WithLabelValues(labels...).Set(0)
 				}
 			}
 		}
 
-		time.Sleep(time.Duration(config.Github.Refresh) * time.Second)
-		runnersOrganizationGauge.Reset()
+		scrapeDurationSeconds.WithLabelValues("runners_organization").Set(time.Since(start).Seconds())
+
+		if !sleepWithContext(ctx, time.Duration(config.Github.Refresh)*time.Second) {
+			return
+		}
 	}
 }

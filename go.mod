@@ -6,7 +6,6 @@ require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.1.0
 	github.com/die-net/lrucache v0.0.0-20220628165024-20a71bc65bf1
 	github.com/fasthttp/router v1.4.11
-	github.com/google/go-github v17.0.0+incompatible
 	github.com/google/go-github/v45 v45.2.0
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
 	github.com/prometheus/client_golang v1.13.0

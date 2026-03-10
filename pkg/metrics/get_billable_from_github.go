@@ -9,7 +9,7 @@ import (
 
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v45/github"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -23,23 +23,31 @@ var (
 	)
 )
 
-// getBillableFromGithub - return billable informations for MACOS, WINDOWS and UBUNTU runners.
-func getBillableFromGithub() {
+func getBillableFromGithub(ctx context.Context) {
 	for {
-		for _, repo := range repositories {
-			for k, v := range workflows[repo] {
+		start := time.Now()
+		workflowBillGauge.Reset()
+
+		repos := getRepositories()
+		wfs := getWorkflows()
+		for _, repo := range repos {
+			for k, v := range wfs[repo] {
 				r := strings.Split(repo, "/")
 
 				for {
-					resp, _, err := client.Actions.GetWorkflowUsageByID(context.Background(), r[0], r[1], k)
+					resp, rr, err := client.Actions.GetWorkflowUsageByID(ctx, r[0], r[1], k)
 					if rl_err, ok := err.(*github.RateLimitError); ok {
 						log.Printf("GetWorkflowUsageByID ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-						time.Sleep(time.Until(rl_err.Rate.Reset.Time))
+						if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+							return
+						}
 						continue
 					} else if err != nil {
 						log.Printf("GetWorkflowUsageByID error for %s: %s", repo, err.Error())
+						scrapeErrorsTotal.WithLabelValues("billable").Inc()
 						break
 					}
+					updateRateLimit(rr)
 					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "MACOS").Set(float64(resp.GetBillable().MacOS.GetTotalMS()) / 1000)
 					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "WINDOWS").Set(float64(resp.GetBillable().Windows.GetTotalMS()) / 1000)
 					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "UBUNTU").Set(float64(resp.GetBillable().Ubuntu.GetTotalMS()) / 1000)
@@ -49,6 +57,10 @@ func getBillableFromGithub() {
 			}
 		}
 
-		time.Sleep(time.Duration(config.Github.Refresh) * 5 * time.Second)
+		scrapeDurationSeconds.WithLabelValues("billable").Set(time.Since(start).Seconds())
+
+		if !sleepWithContext(ctx, time.Duration(config.Github.Refresh)*5*time.Second) {
+			return
+		}
 	}
 }

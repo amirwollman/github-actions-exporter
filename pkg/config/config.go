@@ -3,7 +3,6 @@ package config
 import "github.com/urfave/cli/v2"
 
 var (
-	// Github - github configuration
 	Github struct {
 		AppID             int64  `split_words:"true"`
 		AppInstallationID int64  `split_words:"true"`
@@ -16,7 +15,9 @@ var (
 		CacheSizeBytes    int64
 	}
 	Metrics struct {
-		FetchWorkflowRunUsage bool
+		FetchWorkflowRunUsage  bool
+		FetchJobMetrics        bool
+		WorkflowRunWindowHours int64
 	}
 	Port           int
 	Debug          bool
@@ -24,7 +25,6 @@ var (
 	WorkflowFields string
 )
 
-// InitConfiguration - set configuration from env vars or command parameters
 func InitConfiguration() []cli.Flag {
 	return []cli.Flag{
 		&cli.Int64Flag{
@@ -110,7 +110,7 @@ func InitConfiguration() []cli.Flag {
 			Name:        "export_fields",
 			EnvVars:     []string{"EXPORT_FIELDS"},
 			Usage:       "A comma separated list of fields for workflow metrics that should be exported",
-			Value:       "repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status",
+			Value:       "repo,id,node_id,head_branch,head_sha,run_number,run_attempt,workflow_id,workflow,event,status",
 			Destination: &WorkflowFields,
 		},
 		&cli.BoolFlag{
@@ -119,6 +119,20 @@ func InitConfiguration() []cli.Flag {
 			Usage:       "When true, will perform an API call per workflow run to fetch the workflow usage",
 			Value:       true,
 			Destination: &Metrics.FetchWorkflowRunUsage,
+		},
+		&cli.BoolFlag{
+			Name:        "fetch_job_metrics",
+			EnvVars:     []string{"FETCH_JOB_METRICS"},
+			Usage:       "When true, will fetch job-level metrics per workflow run (additional API call per run)",
+			Value:       false,
+			Destination: &Metrics.FetchJobMetrics,
+		},
+		&cli.Int64Flag{
+			Name:        "workflow_run_window_hours",
+			EnvVars:     []string{"WORKFLOW_RUN_WINDOW_HOURS"},
+			Value:       12,
+			Usage:       "Time window in hours for fetching recent workflow runs",
+			Destination: &Metrics.WorkflowRunWindowHours,
 		},
 		&cli.Int64Flag{
 			Name:        "github_cache_size_bytes",

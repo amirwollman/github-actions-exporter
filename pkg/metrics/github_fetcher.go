@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/go-github/v45/github"
@@ -12,12 +13,41 @@ import (
 )
 
 var (
-	repositories []string
-	workflows    map[string]map[int64]github.Workflow
+	repositories   []string
+	workflows      map[string]map[int64]github.Workflow
+	mu             sync.RWMutex
+	workflowsReady = make(chan struct{})
 )
 
-func getAllReposForOrg(orga string) []string {
-	var all_repos []string
+func getRepositories() []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	result := make([]string, len(repositories))
+	copy(result, repositories)
+	return result
+}
+
+func getWorkflows() map[string]map[int64]github.Workflow {
+	mu.RLock()
+	defer mu.RUnlock()
+	return workflows
+}
+
+// sleepWithContext blocks for the given duration or until the context is cancelled.
+// Returns true if the sleep completed, false if the context was cancelled.
+func sleepWithContext(ctx context.Context, d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func getAllReposForOrg(ctx context.Context, orga string) []string {
+	var allRepos []string
 
 	opt := &github.RepositoryListByOrgOptions{
 		ListOptions: github.ListOptions{
@@ -26,27 +56,29 @@ func getAllReposForOrg(orga string) []string {
 		},
 	}
 	for {
-		repos_page, resp, err := client.Repositories.ListByOrg(context.Background(), orga, opt)
+		reposPage, resp, err := client.Repositories.ListByOrg(ctx, orga, opt)
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListByOrg ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			time.Sleep(time.Until(rl_err.Rate.Reset.Time))
+			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+				return allRepos
+			}
 			continue
 		} else if err != nil {
 			log.Printf("ListByOrg error for %s: %s", orga, err.Error())
 			break
 		}
-		for _, repo := range repos_page {
-			all_repos = append(all_repos, *repo.FullName)
+		for _, repo := range reposPage {
+			allRepos = append(allRepos, *repo.FullName)
 		}
 		if resp.NextPage == 0 {
 			break
 		}
 		opt.ListOptions.Page = resp.NextPage
 	}
-	return all_repos
+	return allRepos
 }
 
-func getAllWorkflowsForRepo(owner string, repo string) map[int64]github.Workflow {
+func getAllWorkflowsForRepo(ctx context.Context, owner string, repo string) map[int64]github.Workflow {
 	res := make(map[int64]github.Workflow)
 
 	opt := &github.ListOptions{
@@ -55,16 +87,18 @@ func getAllWorkflowsForRepo(owner string, repo string) map[int64]github.Workflow
 	}
 
 	for {
-		workflows_page, resp, err := client.Actions.ListWorkflows(context.Background(), owner, repo, opt)
+		workflowsPage, resp, err := client.Actions.ListWorkflows(ctx, owner, repo, opt)
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListWorkflows ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			time.Sleep(time.Until(rl_err.Rate.Reset.Time))
+			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+				return res
+			}
 			continue
 		} else if err != nil {
 			log.Printf("ListWorkflows error for %s: %s", repo, err.Error())
 			return res
 		}
-		for _, w := range workflows_page.Workflows {
+		for _, w := range workflowsPage.Workflows {
 			res[*w.ID] = *w
 		}
 		if resp.NextPage == 0 {
@@ -76,36 +110,43 @@ func getAllWorkflowsForRepo(owner string, repo string) map[int64]github.Workflow
 	return res
 }
 
-func periodicGithubFetcher() {
+func periodicGithubFetcher(ctx context.Context) {
+	firstFetch := true
 	for {
-
-		// Fetch repositories (if dynamic)
-		var repos_to_fetch []string
+		var reposToFetch []string
 		if len(config.Github.Repositories.Value()) > 0 {
-			repos_to_fetch = config.Github.Repositories.Value()
+			reposToFetch = config.Github.Repositories.Value()
 		} else {
 			for _, orga := range config.Github.Organizations.Value() {
-				repos_to_fetch = append(repos_to_fetch, getAllReposForOrg(orga)...)
+				reposToFetch = append(reposToFetch, getAllReposForOrg(ctx, orga)...)
 			}
 		}
-		repositories = repos_to_fetch
 
-		// Fetch workflows
-		non_empty_repos := make([]string, 0)
+		nonEmptyRepos := make([]string, 0)
 		ww := make(map[string]map[int64]github.Workflow)
-		for _, repo := range repos_to_fetch {
+		for _, repo := range reposToFetch {
 			r := strings.Split(repo, "/")
-			workflows_for_repo := getAllWorkflowsForRepo(r[0], r[1])
-			if len(workflows_for_repo) == 0 {
+			workflowsForRepo := getAllWorkflowsForRepo(ctx, r[0], r[1])
+			if len(workflowsForRepo) == 0 {
 				continue
 			}
-			non_empty_repos = append(non_empty_repos, repo)
-			ww[repo] = workflows_for_repo
+			nonEmptyRepos = append(nonEmptyRepos, repo)
+			ww[repo] = workflowsForRepo
 			log.Printf("Fetched %d workflows for repository %s", len(ww[repo]), repo)
 		}
-		repositories = non_empty_repos
-		workflows = ww
 
-		time.Sleep(time.Duration(config.Github.Refresh) * 5 * time.Second)
+		mu.Lock()
+		repositories = nonEmptyRepos
+		workflows = ww
+		mu.Unlock()
+
+		if firstFetch {
+			close(workflowsReady)
+			firstFetch = false
+		}
+
+		if !sleepWithContext(ctx, time.Duration(config.Github.Refresh)*5*time.Second) {
+			return
+		}
 	}
 }
