@@ -94,6 +94,7 @@ jobs:
       - name: Update Helm chart versions
         run: |
           APP_VERSION="${{ steps.version.outputs.full }}"
+          APP_VERSION="${APP_VERSION#v}"
           CHART_DIR="charts/github-actions-exporter"
 
           git fetch origin main
@@ -126,6 +127,7 @@ jobs:
       - name: Publish Helm chart to gh-pages
         run: |
           APP_VERSION="${{ steps.version.outputs.full }}"
+          APP_VERSION="${APP_VERSION#v}"
           CHART_DIR="charts/github-actions-exporter"
 
           git fetch origin gh-pages
