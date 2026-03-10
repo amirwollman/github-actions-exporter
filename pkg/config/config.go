@@ -98,13 +98,13 @@ func InitConfiguration() []cli.Flag {
 		&cli.StringSliceFlag{
 			Name:        "github_workflows",
 			EnvVars:     []string{"GITHUB_WORKFLOWS"},
-			Usage:       "Limit workflow-level metrics to these workflow names only. Format: <name>,<name2> (empty = all workflows)",
+			Usage:       "Limit workflow-level metrics to these workflow names. Format: <name>,<name2>. Prefix with re: for regex (e.g. re:E2E Tests .*)",
 			Destination: &Github.Workflows,
 		},
 		&cli.StringSliceFlag{
 			Name:        "github_workflow_jobs",
 			EnvVars:     []string{"GITHUB_WORKFLOW_JOBS"},
-			Usage:       "Limit job-level metrics to these job names only. Format: <name>,<name2> (empty = all jobs)",
+			Usage:       "Limit job-level metrics to these job names. Format: <name>,<name2>. Prefix with re: for regex (e.g. re:E2E Tests .*)",
 			Destination: &Github.WorkflowJobs,
 		},
 		&cli.BoolFlag{

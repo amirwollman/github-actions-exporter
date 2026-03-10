@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	"log"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,34 @@ import (
 
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 )
+
+// expandCommaSlice takes a StringSlice (which may contain comma-separated values
+// when set via env var) and returns individual trimmed strings.
+func expandCommaSlice(slice []string) []string {
+	var out []string
+	for _, s := range slice {
+		for _, part := range strings.Split(s, ",") {
+			if trimmed := strings.TrimSpace(part); trimmed != "" {
+				out = append(out, trimmed)
+			}
+		}
+	}
+	return out
+}
+
+// patternMatches returns true if name matches pattern. If pattern starts with "re:",
+// the rest is treated as a regex; otherwise exact match is used.
+func patternMatches(pattern, name string) bool {
+	if strings.HasPrefix(pattern, "re:") {
+		re, err := regexp.Compile(strings.TrimPrefix(pattern, "re:"))
+		if err != nil {
+			log.Printf("invalid regex pattern %q: %v", pattern, err)
+			return false
+		}
+		return re.MatchString(name)
+	}
+	return pattern == name
+}
 
 var (
 	repositories   []string
@@ -47,12 +76,12 @@ func sleepWithContext(ctx context.Context, d time.Duration) bool {
 }
 
 func isWorkflowAllowed(name string) bool {
-	allowed := config.Github.Workflows.Value()
+	allowed := expandCommaSlice(config.Github.Workflows.Value())
 	if len(allowed) == 0 {
 		return true
 	}
 	for _, w := range allowed {
-		if w == name {
+		if patternMatches(w, name) {
 			return true
 		}
 	}
@@ -60,12 +89,12 @@ func isWorkflowAllowed(name string) bool {
 }
 
 func isJobAllowed(name string) bool {
-	allowed := config.Github.WorkflowJobs.Value()
+	allowed := expandCommaSlice(config.Github.WorkflowJobs.Value())
 	if len(allowed) == 0 {
 		return true
 	}
 	for _, j := range allowed {
-		if j == name {
+		if patternMatches(j, name) {
 			return true
 		}
 	}
@@ -140,10 +169,11 @@ func periodicGithubFetcher(ctx context.Context) {
 	firstFetch := true
 	for {
 		var reposToFetch []string
-		if len(config.Github.Repositories.Value()) > 0 {
-			reposToFetch = config.Github.Repositories.Value()
+		repos := expandCommaSlice(config.Github.Repositories.Value())
+		if len(repos) > 0 {
+			reposToFetch = repos
 		} else {
-			for _, orga := range config.Github.Organizations.Value() {
+			for _, orga := range expandCommaSlice(config.Github.Organizations.Value()) {
 				reposToFetch = append(reposToFetch, getAllReposForOrg(ctx, orga)...)
 			}
 		}
