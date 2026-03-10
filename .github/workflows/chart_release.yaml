@@ -6,6 +6,9 @@ on:
     paths:
       - 'charts/**'
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
