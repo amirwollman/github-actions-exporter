@@ -45,7 +45,7 @@ jobs:
         shell: bash
         working-directory: dest
         run: |
-          helm repo index . --url https://raw.githubusercontent.com/labbs/github-actions-exporter/gh-pages/
+          helm repo index . --url https://raw.githubusercontent.com/bold-dev/github-actions-exporter/gh-pages/
           git config user.name "$GITHUB_ACTOR"
           git config user.email "$GITHUB_ACTOR@users.noreply.github.com"  
           git add $(git ls-files -o --exclude-standard)

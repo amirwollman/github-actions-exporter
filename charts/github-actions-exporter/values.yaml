@@ -1,9 +1,9 @@
 # Default values for github-actions-exporter.
 
 image:
-  repository: ghcr.io/labbs/github-actions-exporter
+  repository: 471112653798.dkr.ecr.eu-central-1.amazonaws.com/github-exporter
   pullPolicy: IfNotPresent
-  tag: "1.9.0"
+  tag: "1.0.1"
 
 nameOverride: ""
 fullnameOverride: ""
