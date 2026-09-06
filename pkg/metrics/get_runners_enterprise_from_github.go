@@ -29,7 +29,10 @@ var (
 	)
 )
 
-func getAllEnterpriseRunners(ctx context.Context) []*github.Runner {
+// getAllEnterpriseRunners returns the enterprise's runners and whether the
+// listing completed. An incomplete listing must not be published: see
+// publishRunners.
+func getAllEnterpriseRunners(ctx context.Context) ([]*github.Runner, bool) {
 	var runners []*github.Runner
 	opt := &github.ListOptions{PerPage: 200}
 
@@ -38,13 +41,13 @@ func getAllEnterpriseRunners(ctx context.Context) []*github.Runner {
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListRunners ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
 			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
-				return runners
+				return nil, false
 			}
 			continue
 		} else if err != nil {
 			log.Printf("ListRunners error for enterprise %s: %s", config.EnterpriseName, err.Error())
 			scrapeErrorsTotal.WithLabelValues("runners_enterprise").Inc()
-			return nil
+			return nil, false
 		}
 		updateRateLimit(rr)
 
@@ -55,7 +58,7 @@ func getAllEnterpriseRunners(ctx context.Context) []*github.Runner {
 		opt.Page = rr.NextPage
 	}
 
-	return runners
+	return runners, true
 }
 
 func getRunnersEnterpriseFromGithub(ctx context.Context) {
@@ -64,23 +67,20 @@ func getRunnersEnterpriseFromGithub(ctx context.Context) {
 	}
 	for {
 		start := time.Now()
-		runnersEnterpriseStatusGauge.Reset()
-		runnersEnterpriseBusyGauge.Reset()
 
-		runners := getAllEnterpriseRunners(ctx)
-
-		for _, runner := range runners {
-			labels := []string{*runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)}
-			if runner.GetStatus() == "online" {
-				runnersEnterpriseStatusGauge.WithLabelValues(labels...).Set(1)
-			} else {
-				runnersEnterpriseStatusGauge.WithLabelValues(labels...).Set(0)
+		runners, complete := getAllEnterpriseRunners(ctx)
+		if complete {
+			samples := make([]runnerSample, 0, len(runners))
+			for _, runner := range runners {
+				samples = append(samples, runnerSample{
+					labels: []string{*runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)},
+					online: runner.GetStatus() == "online",
+					busy:   runner.GetBusy(),
+				})
 			}
-			if runner.GetBusy() {
-				runnersEnterpriseBusyGauge.WithLabelValues(labels...).Set(1)
-			} else {
-				runnersEnterpriseBusyGauge.WithLabelValues(labels...).Set(0)
-			}
+			publishRunners(runnersEnterpriseStatusGauge, runnersEnterpriseBusyGauge, samples)
+		} else {
+			log.Printf("Incomplete enterprise runner listing, keeping previously exported values")
 		}
 
 		scrapeDurationSeconds.WithLabelValues("runners_enterprise").Set(time.Since(start).Seconds())

@@ -213,7 +213,21 @@ prometheusRule:
   runnerDown:
     for: 5m
     severity: critical
+    lookback: 20m
 ```
+
+### Why `lookback` exists
+
+Prometheus only considers a sample for 5 minutes after it is scraped. On a
+scrape interval longer than that, `github_runner_status == 0` is evaluable for
+5 minutes and then vanishes for the rest of the interval — so the condition
+never holds continuously for `for`, and the alert never fires no matter how
+long the runner has actually been down.
+
+The rule therefore wraps each metric in `last_over_time(...[lookback])`, which
+carries the most recent sample forward. **Keep `lookback` comfortably longer
+than `serviceMonitor.interval`.** The trade-off is that a runner deleted from
+GitHub keeps alerting for up to `lookback` after it disappears.
 
 ## Setting up authentication with GitHub API
 

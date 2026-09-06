@@ -49,6 +49,10 @@ prometheusRule:
     # repo-, organization- and enterprise-scoped runners.
     for: 5m
     severity: critical
+    # Window the alert carries the last scraped sample forward over. Must be
+    # comfortably longer than serviceMonitor.interval, otherwise the series
+    # goes stale between scrapes and the `for` clause can never be satisfied.
+    lookback: 20m
 
 imagePullSecrets: []
 
