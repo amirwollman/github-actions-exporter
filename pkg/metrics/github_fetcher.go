@@ -58,7 +58,7 @@ func getRepositories() []string {
 }
 
 // getOrganizations returns every organization the exporter should fetch
-// org-level runners for: those explicitly configured via GITHUB_ORGAS, plus
+// org-level runners for: those explicitly configured via GITHUB_ORGS, plus
 // the owner of every configured/discovered repository, so org-level runners
 // are included even when only GITHUB_REPOS is set.
 func getOrganizations() []string {
@@ -207,7 +207,7 @@ func periodicGithubFetcher(ctx context.Context) {
 
 		// Org-level runners are relevant for every organization that owns a
 		// configured/discovered repository, not just those explicitly listed
-		// in GITHUB_ORGAS, so they are included even when only GITHUB_REPOS
+		// in GITHUB_ORGS, so they are included even when only GITHUB_REPOS
 		// is set.
 		orgSet := make(map[string]struct{})
 		for _, orga := range explicitOrgs {

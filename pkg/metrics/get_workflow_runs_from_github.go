@@ -60,10 +60,14 @@ func getFieldValue(repo string, run github.WorkflowRun, wfs map[string]map[int64
 	return ""
 }
 
+// workflowFields is the validated EXPORT_FIELDS list, set once by InitMetrics
+// and read-only afterwards. It must stay in step with the label set built
+// there, so both derive from parseWorkflowFields.
+var workflowFields []string
+
 func getRelevantFields(repo string, run *github.WorkflowRun, wfs map[string]map[int64]github.Workflow) []string {
-	relevantFields := strings.Split(config.WorkflowFields, ",")
-	result := make([]string, len(relevantFields))
-	for i, field := range relevantFields {
+	result := make([]string, len(workflowFields))
+	for i, field := range workflowFields {
 		result[i] = getFieldValue(repo, *run, wfs, field)
 	}
 	return result

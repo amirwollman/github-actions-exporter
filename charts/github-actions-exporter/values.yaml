@@ -12,7 +12,7 @@ env:
   PORT: 9999
   GITHUB_REFRESH: 30
   GITHUB_API_URL: api.github.com
-  GITHUB_ORGAS: ""
+  GITHUB_ORGS: ""
   GITHUB_REPOS: ""
   # ENTERPRISE_NAME: ""
   # EXPORT_FIELDS: "repo,id,node_id,head_branch,head_sha,run_number,run_attempt,workflow_id,workflow,event,status"

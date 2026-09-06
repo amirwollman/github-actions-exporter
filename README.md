@@ -35,12 +35,12 @@ Authentication can either via a Github Token or the Github App Authentication 3 
 | Github App Installation Id | app_installation_id, gii | GITHUB_APP_INSTALLATION_ID | - | Github App Authentication Installation Id |
 | Github App Private Key | app_private_key, gpk | GITHUB_APP_PRIVATE_KEY | - | Github App Authentication Private Key |
 | Github Refresh | github_refresh, gr | GITHUB_REFRESH | 30 | Refresh time Github Actions status in sec |
-| Github Organizations | github_orgas, go | GITHUB_ORGAS | - | List all organizations you want get informations. Format \<orga1>,\<orga2>,\<orga3> (like test1,test2) |
+| Github Organizations | github_orgs, go | GITHUB_ORGS | - | List all organizations you want get informations. Format \<org1>,\<org2>,\<org3> (like test1,test2). `github_orgas` / `GITHUB_ORGAS` remain accepted as deprecated aliases; `GITHUB_ORGS` wins if both are set |
 | Github Repos | github_repos, grs | GITHUB_REPOS | - | [Optional] List all repositories you want get informations. Format \<orga>/\<repo>,\<orga>/\<repo2>,\<orga>/\<repo3> (like test/test). Defaults to all repositories owned by the organizations. |
 | Exporter port | port, p | PORT | 9999 | Exporter port |
 | Github Api URL | github_api_url, url | GITHUB_API_URL | api.github.com | Github API URL (primarily for Github Enterprise usage) |
 | Github Enterprise Name | enterprise_name | ENTERPRISE_NAME | "" | Enterprise name. Needed for enterprise endpoints (/enterprises/{ENTERPRISE_NAME}/*). Currently used to get Enterprise level tunners status |
-| Fields to export | export_fields | EXPORT_FIELDS | repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status | A comma separated list of fields for workflow metrics that should be exported |
+| Fields to export | export_fields | EXPORT_FIELDS | repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status | A comma separated list of fields for workflow metrics that should be exported. Valid values: `repo`, `id`, `node_id`, `head_branch`, `head_sha`, `run_number`, `run_attempt`, `workflow_id`, `workflow`, `event`, `status`. Unknown, repeated, and the always-exported `conclusion`/`phase` are dropped with a log line |
 
 ## Exported stats
 
@@ -72,6 +72,12 @@ Gauge type
 | status | Raw Github status (queued/in_progress/completed/...) |
 | conclusion | Raw Github conclusion once completed (success/failure/cancelled/skipped/neutral/timed_out/action_required/stale/...), empty while the run hasn't completed |
 | phase | Normalized status for dashboards/alerts: `running` (not yet completed), `success`, `failed` or `cancelled` |
+
+> **Cardinality.** `id`, `node_id`, `head_sha` and `run_number` are unique per
+> workflow run, so this metric creates a new series for every run and keeps it
+> for `WORKFLOW_RUN_WINDOW_HOURS`. Measured on one busy repo that is ~560 new
+> series a day; dropping those four fields from `EXPORT_FIELDS` took the same
+> data from 612 series to 58. Trim them unless you actually query per-run.
 
 ### github_workflow_run_duration_ms
 Gauge type
@@ -125,10 +131,10 @@ Gauge type
 Gauge type
 (If you have self hosted runner for an organization)
 
-Fetched for every organization listed in `GITHUB_ORGAS`, plus the owner
+Fetched for every organization listed in `GITHUB_ORGS`, plus the owner
 organization of every repository resolved from `GITHUB_REPOS` (or
-auto-discovered from `GITHUB_ORGAS`) — so org-level runners are exported even
-if you only configure `GITHUB_REPOS` and never set `GITHUB_ORGAS`.
+auto-discovered from `GITHUB_ORGS`) — so org-level runners are exported even
+if you only configure `GITHUB_REPOS` and never set `GITHUB_ORGS`.
 
 **Result possibility**
 
