@@ -11,6 +11,10 @@ permissions:
 
 jobs:
   publish:
+    # Only the internal bold-dev repo publishes from main. On the public fork
+    # release.yml owns gh-pages, and this job would rewrite every URL in its
+    # index.yaml to bold-dev's, which 404s for anyone installing the chart.
+    if: github.repository == 'bold-dev/github-actions-exporter'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
