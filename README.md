@@ -35,12 +35,12 @@ Authentication can either via a Github Token or the Github App Authentication 3 
 | Github App Installation Id | app_installation_id, gii | GITHUB_APP_INSTALLATION_ID | - | Github App Authentication Installation Id |
 | Github App Private Key | app_private_key, gpk | GITHUB_APP_PRIVATE_KEY | - | Github App Authentication Private Key |
 | Github Refresh | github_refresh, gr | GITHUB_REFRESH | 30 | Refresh time Github Actions status in sec |
-| Github Organizations | github_orgas, go | GITHUB_ORGAS | - | List all organizations you want get informations. Format \<orga1>,\<orga2>,\<orga3> (like test1,test2) |
+| Github Organizations | github_orgs, go | GITHUB_ORGS | - | List all organizations you want get informations. Format \<org1>,\<org2>,\<org3> (like test1,test2). `github_orgas` / `GITHUB_ORGAS` remain accepted as deprecated aliases; `GITHUB_ORGS` wins if both are set |
 | Github Repos | github_repos, grs | GITHUB_REPOS | - | [Optional] List all repositories you want get informations. Format \<orga>/\<repo>,\<orga>/\<repo2>,\<orga>/\<repo3> (like test/test). Defaults to all repositories owned by the organizations. |
 | Exporter port | port, p | PORT | 9999 | Exporter port |
 | Github Api URL | github_api_url, url | GITHUB_API_URL | api.github.com | Github API URL (primarily for Github Enterprise usage) |
 | Github Enterprise Name | enterprise_name | ENTERPRISE_NAME | "" | Enterprise name. Needed for enterprise endpoints (/enterprises/{ENTERPRISE_NAME}/*). Currently used to get Enterprise level tunners status |
-| Fields to export | export_fields | EXPORT_FIELDS | repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status | A comma separated list of fields for workflow metrics that should be exported |
+| Fields to export | export_fields | EXPORT_FIELDS | repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status | A comma separated list of fields for workflow metrics that should be exported. Valid values: `repo`, `id`, `node_id`, `head_branch`, `head_sha`, `run_number`, `run_attempt`, `workflow_id`, `workflow`, `event`, `status`. Unknown, repeated, and the always-exported `conclusion`/`phase` are dropped with a log line |
 
 ## Exported stats
 
@@ -69,7 +69,15 @@ Gauge type
 | run_number | Build id for the repo (incremental id => 1/2/3/4/...) |
 | workflow_id | Workflow ID |
 | workflow | Workflow Name |
-| status | Workflow status (completed/in_progress) |
+| status | Raw Github status (queued/in_progress/completed/...) |
+| conclusion | Raw Github conclusion once completed (success/failure/cancelled/skipped/neutral/timed_out/action_required/stale/...), empty while the run hasn't completed |
+| phase | Normalized status for dashboards/alerts: `running` (not yet completed), `success`, `failed` or `cancelled` |
+
+> **Cardinality.** `id`, `node_id`, `head_sha` and `run_number` are unique per
+> workflow run, so this metric creates a new series for every run and keeps it
+> for `WORKFLOW_RUN_WINDOW_HOURS`. Measured on one busy repo that is ~560 new
+> series a day; dropping those four fields from `EXPORT_FIELDS` took the same
+> data from 612 series to 58. Trim them unless you actually query per-run.
 
 ### github_workflow_run_duration_ms
 Gauge type
@@ -97,6 +105,37 @@ Gauge type
 ### github_job
 > :warning: **This is a duplicate of the `github_workflow_run_status` metric that will soon be deprecated, do not use anymore.**
 
+### github_job_status
+Gauge type (enable with `FETCH_JOB_METRICS=true`)
+
+Value is always 1; the state is carried in the labels.
+
+| Label | Description |
+| --- | --- |
+| repo | Repository the run belongs to |
+| workflow | Workflow name |
+| run_id | ID of the workflow run the job belongs to |
+| job_name | Job name |
+| status | `queued`, `in_progress` or `completed` |
+| conclusion | Set once the job completes (`success`/`failure`/`cancelled`/...), empty while it is queued or running |
+| runner_name | Name of the runner executing the job, matching the `name` label on `github_runner_status` / `github_runner_organization_status`. Empty while the job is still queued |
+
+**Which job is a runner working on right now:**
+
+```promql
+github_job_status{status="in_progress"}
+```
+
+`runner_name` is the join key back to the runner metrics, so a table of
+`github_job_status{status="in_progress"}` gives you runner → repo → workflow →
+job for everything currently executing.
+
+Jobs of a run that has finished are fetched once and cached until the run
+leaves the `WORKFLOW_RUN_WINDOW_HOURS` window; only queued and running jobs are
+re-fetched each cycle. Without that cache the collector spent one API call per
+run in the window on every pass, which on a busy repo is enough to exhaust a
+5000/hour token and stall every other collector on the rate-limit pause.
+
 ### github_runner_status
 Gauge type
 (If you have self hosted runner)
@@ -122,6 +161,11 @@ Gauge type
 ### github_runner_organization_status
 Gauge type
 (If you have self hosted runner for an organization)
+
+Fetched for every organization listed in `GITHUB_ORGS`, plus the owner
+organization of every repository resolved from `GITHUB_REPOS` (or
+auto-discovered from `GITHUB_ORGS`) — so org-level runners are exported even
+if you only configure `GITHUB_REPOS` and never set `GITHUB_ORGS`.
 
 **Result possibility**
 
@@ -188,6 +232,75 @@ Example:
 # TYPE github_workflow_usage gauge
 github_workflow_usage_seconds{id="2862037",name="Create Release",node_id="MDg6V29ya2Zsb3cyODYyMDM3",repo="xxx/xxx",state="active",os="UBUNTU"} 706.609
 ```
+
+## Alerting
+
+The Helm chart can optionally provision a `PrometheusRule` (requires the
+Prometheus Operator CRDs, same as `serviceMonitor`) with a `GithubRunnerDown`
+alert that fires when any repo-, organization- or enterprise-scoped runner
+(`github_runner_status`, `github_runner_organization_status`,
+`github_runner_enterprise_status`) reports offline for longer than
+`prometheusRule.runnerDown.for` (default `5m`):
+
+```yaml
+prometheusRule:
+  enabled: true
+  labels:
+    release: prometheus
+  runnerDown:
+    for: 5m
+    severity: critical
+    lookback: 20m
+```
+
+### Why `lookback` exists
+
+Prometheus only considers a sample for 5 minutes after it is scraped. On a
+scrape interval longer than that, `github_runner_status == 0` is evaluable for
+5 minutes and then vanishes for the rest of the interval — so the condition
+never holds continuously for `for`, and the alert never fires no matter how
+long the runner has actually been down.
+
+The rule therefore wraps each metric in `last_over_time(...[lookback])`, which
+carries the most recent sample forward. **Keep `lookback` comfortably longer
+than `serviceMonitor.interval`.** The trade-off is that a runner deleted from
+GitHub keeps alerting for up to `lookback` after it disappears.
+
+## Releasing
+
+The image and the chart are released independently, because the two do not
+move together: a chart change (new alert, new value, docs) needs no image
+build, and plenty of images — debug builds, interim fixes — should never
+reach a chart.
+
+| | Workflow | Trigger | Publishes |
+| --- | --- | --- | --- |
+| Image | `Release Image` | `v<x.y.z>` | Binary + GitHub release, `ghcr.io/<owner>/<repo>` |
+| Chart | `Chart Release` | `chart-v<x.y.z>` | Packaged chart to `gh-pages`, indexed at `https://<owner>.github.io/<repo>/` |
+
+```bash
+# publish a new image
+git tag v1.0.7       && git push origin v1.0.7
+
+# publish a new chart (independently)
+git tag chart-v1.2.0 && git push origin chart-v1.2.0
+```
+
+The link between them is `image.tag` in `values.yaml`. That value is what the
+chart deploys, and nothing updates it automatically — building an image does
+not put it in front of users. To ship a new image, edit `image.tag`, then cut
+a chart release. `Chart Release` copies that tag into the chart's `appVersion`
+so a published chart always records which image it installs.
+
+`Chart Release` refuses to publish a version that is already on `gh-pages`,
+rather than overwriting a released artifact with different content.
+
+Neither workflow hardcodes an owner: the image goes to
+`ghcr.io/${{ github.repository }}` and the chart index is built from
+`${{ github.repository_owner }}`, so a fork releases to its own registry and
+its own Pages site with no changes. A fork whose Pages site lives somewhere
+else — a private repo, say, or a custom domain — overrides the `--url` in
+`Chart Release`.
 
 ## Setting up authentication with GitHub API
 

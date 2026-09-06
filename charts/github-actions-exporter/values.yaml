@@ -12,7 +12,7 @@ env:
   PORT: 9999
   GITHUB_REFRESH: 30
   GITHUB_API_URL: api.github.com
-  GITHUB_ORGAS: ""
+  GITHUB_ORGS: ""
   GITHUB_REPOS: ""
   # ENTERPRISE_NAME: ""
   # EXPORT_FIELDS: "repo,id,node_id,head_branch,head_sha,run_number,run_attempt,workflow_id,workflow,event,status"
@@ -37,6 +37,22 @@ serviceMonitor:
   # timeout: 10s
   # targetLabels: []
   # metricRelabelings: []
+
+# Requires the Prometheus Operator (same CRD set as serviceMonitor above).
+prometheusRule:
+  enabled: no
+  labels:
+    release: prometheus
+  # namespace: monitoring
+  runnerDown:
+    # How long a runner must report offline before the alert fires. Covers
+    # repo-, organization- and enterprise-scoped runners.
+    for: 5m
+    severity: critical
+    # Window the alert carries the last scraped sample forward over. Must be
+    # comfortably longer than serviceMonitor.interval, otherwise the series
+    # goes stale between scrapes and the `for` clause can never be satisfied.
+    lookback: 20m
 
 imagePullSecrets: []
 

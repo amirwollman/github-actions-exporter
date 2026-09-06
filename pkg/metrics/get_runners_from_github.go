@@ -30,7 +30,9 @@ var (
 	)
 )
 
-func getAllRepoRunners(ctx context.Context, owner string, repo string) []*github.Runner {
+// getAllRepoRunners returns the repository's runners and whether the listing
+// completed. An incomplete listing must not be published: see publishRunners.
+func getAllRepoRunners(ctx context.Context, owner string, repo string) ([]*github.Runner, bool) {
 	var runners []*github.Runner
 	opt := &github.ListOptions{PerPage: 200}
 
@@ -39,13 +41,13 @@ func getAllRepoRunners(ctx context.Context, owner string, repo string) []*github
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListRunners ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
 			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
-				return runners
+				return nil, false
 			}
 			continue
 		} else if err != nil {
 			log.Printf("ListRunners error for repo %s: %s", repo, err.Error())
 			scrapeErrorsTotal.WithLabelValues("runners").Inc()
-			return nil
+			return nil, false
 		}
 		updateRateLimit(rr)
 
@@ -56,33 +58,36 @@ func getAllRepoRunners(ctx context.Context, owner string, repo string) []*github
 		opt.Page = rr.NextPage
 	}
 
-	return runners
+	return runners, true
 }
 
 func getRunnersFromGithub(ctx context.Context) {
 	for {
 		start := time.Now()
-		runnersStatusGauge.Reset()
-		runnersBusyGauge.Reset()
 
-		repos := getRepositories()
-		for _, repo := range repos {
+		var samples []runnerSample
+		complete := true
+		for _, repo := range getRepositories() {
 			r := strings.Split(repo, "/")
 
-			runners := getAllRepoRunners(ctx, r[0], r[1])
-			for _, runner := range runners {
-				labels := []string{repo, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)}
-				if runner.GetStatus() == "online" {
-					runnersStatusGauge.WithLabelValues(labels...).Set(1)
-				} else {
-					runnersStatusGauge.WithLabelValues(labels...).Set(0)
-				}
-				if runner.GetBusy() {
-					runnersBusyGauge.WithLabelValues(labels...).Set(1)
-				} else {
-					runnersBusyGauge.WithLabelValues(labels...).Set(0)
-				}
+			runners, ok := getAllRepoRunners(ctx, r[0], r[1])
+			if !ok {
+				complete = false
+				break
 			}
+			for _, runner := range runners {
+				samples = append(samples, runnerSample{
+					labels: []string{repo, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)},
+					online: runner.GetStatus() == "online",
+					busy:   runner.GetBusy(),
+				})
+			}
+		}
+
+		if complete {
+			publishRunners(runnersStatusGauge, runnersBusyGauge, samples)
+		} else {
+			log.Printf("Incomplete repo runner listing, keeping previously exported values")
 		}
 
 		scrapeDurationSeconds.WithLabelValues("runners").Set(time.Since(start).Seconds())

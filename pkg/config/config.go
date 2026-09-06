@@ -82,17 +82,20 @@ func InitConfiguration() []cli.Flag {
 			Destination: &Github.APIURL,
 		},
 		&cli.StringSliceFlag{
-			Name:        "github_orgas",
-			Aliases:     []string{"go"},
-			EnvVars:     []string{"GITHUB_ORGAS"},
-			Usage:       "List all organizations you want get informations. Format <orga>,<orga2>,<orga3> (like test,test2)",
+			Name: "github_orgs",
+			// github_orgas/GITHUB_ORGAS are the historical upstream spellings,
+			// kept so existing deployments keep working. GITHUB_ORGS wins when
+			// both are set.
+			Aliases:     []string{"go", "github_orgas"},
+			EnvVars:     []string{"GITHUB_ORGS", "GITHUB_ORGAS"},
+			Usage:       "List all organizations you want get informations. Format <org>,<org2>,<org3> (like test,test2)",
 			Destination: &Github.Organizations,
 		},
 		&cli.StringSliceFlag{
 			Name:        "github_repos",
 			Aliases:     []string{"grs"},
 			EnvVars:     []string{"GITHUB_REPOS"},
-			Usage:       "List all repositories you want get informations. Format <orga>/<repo>,<orga>/<repo2>,<orga>/<repo3> (like test/test)",
+			Usage:       "List all repositories you want get informations. Format <org>/<repo>,<org>/<repo2>,<org>/<repo3> (like test/test)",
 			Destination: &Github.Repositories,
 		},
 		&cli.StringSliceFlag{

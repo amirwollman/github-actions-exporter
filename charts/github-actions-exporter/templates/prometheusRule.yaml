@@ -1,0 +1,41 @@
+{{- if $.Values.prometheusRule }}
+{{- if and ( .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" ) ( .Values.prometheusRule.enabled ) }}
+{{- $runnerDown := .Values.prometheusRule.runnerDown | default dict }}
+{{- $lookback := $runnerDown.lookback | default "20m" }}
+{{- $for := $runnerDown.for | default "5m" }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+{{- if .Values.prometheusRule.labels }}
+  labels:
+{{ toYaml .Values.prometheusRule.labels | indent 4}}
+{{- end }}
+  name: {{ template "github-actions-exporter.fullname" . }}
+{{- if .Values.prometheusRule.namespace }}
+  namespace: {{ .Values.prometheusRule.namespace }}
+{{- end }}
+spec:
+  groups:
+  - name: github-actions-exporter.runners
+    rules:
+    # last_over_time carries the most recent sample forward across the
+    # lookback window. Without it the alert is only evaluable for the 5m
+    # Prometheus staleness window after each scrape, so on a scrape interval
+    # longer than 5m the condition can never hold continuously for `for` and
+    # the alert never fires — however long the runner has actually been down.
+    - alert: GithubRunnerDown
+      expr: |-
+        last_over_time(github_runner_status[{{ $lookback }}]) == 0
+        or last_over_time(github_runner_organization_status[{{ $lookback }}]) == 0
+        or last_over_time(github_runner_enterprise_status[{{ $lookback }}]) == 0
+      for: {{ $for }}
+      labels:
+        severity: {{ $runnerDown.severity | default "critical" }}
+      annotations:
+        summary: "GitHub self-hosted runner {{`{{ $labels.name }}`}} is offline"
+        description: >-
+          Runner {{`{{ $labels.name }}`}} (id {{`{{ $labels.id }}`}}) scoped to
+          {{`{{ or $labels.repo $labels.organization "the enterprise" }}`}} has
+          reported offline for more than {{ $for }}.
+{{- end }}
+{{- end }}

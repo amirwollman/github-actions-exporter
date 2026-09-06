@@ -29,7 +29,9 @@ var (
 	)
 )
 
-func getAllOrgRunners(ctx context.Context, orga string) []*github.Runner {
+// getAllOrgRunners returns the organization's runners and whether the listing
+// completed. An incomplete listing must not be published: see publishRunners.
+func getAllOrgRunners(ctx context.Context, orga string) ([]*github.Runner, bool) {
 	var runners []*github.Runner
 	opt := &github.ListOptions{PerPage: 200}
 
@@ -38,13 +40,13 @@ func getAllOrgRunners(ctx context.Context, orga string) []*github.Runner {
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListOrganizationRunners ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
 			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
-				return runners
+				return nil, false
 			}
 			continue
 		} else if err != nil {
 			log.Printf("ListOrganizationRunners error for org %s: %s", orga, err.Error())
 			scrapeErrorsTotal.WithLabelValues("runners_organization").Inc()
-			return runners
+			return nil, false
 		}
 		updateRateLimit(rr)
 
@@ -54,30 +56,34 @@ func getAllOrgRunners(ctx context.Context, orga string) []*github.Runner {
 		}
 		opt.Page = rr.NextPage
 	}
-	return runners
+	return runners, true
 }
 
 func getRunnersOrganizationFromGithub(ctx context.Context) {
 	for {
 		start := time.Now()
-		runnersOrganizationStatusGauge.Reset()
-		runnersOrganizationBusyGauge.Reset()
 
-		for _, orga := range config.Github.Organizations.Value() {
-			runners := getAllOrgRunners(ctx, orga)
-			for _, runner := range runners {
-				labels := []string{orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)}
-				if runner.GetStatus() == "online" {
-					runnersOrganizationStatusGauge.WithLabelValues(labels...).Set(1)
-				} else {
-					runnersOrganizationStatusGauge.WithLabelValues(labels...).Set(0)
-				}
-				if runner.GetBusy() {
-					runnersOrganizationBusyGauge.WithLabelValues(labels...).Set(1)
-				} else {
-					runnersOrganizationBusyGauge.WithLabelValues(labels...).Set(0)
-				}
+		var samples []runnerSample
+		complete := true
+		for _, orga := range getOrganizations() {
+			runners, ok := getAllOrgRunners(ctx, orga)
+			if !ok {
+				complete = false
+				break
 			}
+			for _, runner := range runners {
+				samples = append(samples, runnerSample{
+					labels: []string{orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)},
+					online: runner.GetStatus() == "online",
+					busy:   runner.GetBusy(),
+				})
+			}
+		}
+
+		if complete {
+			publishRunners(runnersOrganizationStatusGauge, runnersOrganizationBusyGauge, samples)
+		} else {
+			log.Printf("Incomplete organization runner listing, keeping previously exported values")
 		}
 
 		scrapeDurationSeconds.WithLabelValues("runners_organization").Set(time.Since(start).Seconds())

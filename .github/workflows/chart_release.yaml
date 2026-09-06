@@ -1,13 +1,25 @@
-name: Chart Publish
+# Releases the Helm chart only. Nothing here builds or pushes an image: the
+# chart ships whatever tag values.yaml pins, so adopting a new image is a
+# deliberate edit rather than a side effect of building one. Debug or
+# interim images can be released without ever reaching a chart.
+#
+#   release an image:  git tag v1.2.3        && git push origin v1.2.3
+#   release the chart: git tag chart-v1.2.3  && git push origin chart-v1.2.3
+#
+# Every URL below is derived from the repository it runs in, so a fork
+# publishes its own chart to its own Pages site with no edits.
+name: Chart Release
+
 on:
   push:
-    branches:
-      - main
-    paths:
-      - 'charts/**'
+    tags:
+      - "chart-v*"
 
 permissions:
   contents: write
+
+env:
+  CHART_DIR: charts/github-actions-exporter
 
 jobs:
   publish:
@@ -16,42 +28,110 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          path: 'src'
           fetch-depth: 0
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          path: 'dest'
-          ref: 'gh-pages'
-          fetch-depth: 0
+
+      - name: Resolve versions
+        id: v
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#chart-v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::tag '$GITHUB_REF_NAME' does not carry a semver chart version"
+            exit 1
+          fi
+
+          # appVersion documents which image the chart deploys, so it tracks
+          # the pinned image tag rather than the chart's own version.
+          APP_VERSION="$(sed -n 's/^[[:space:]]*tag:[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}[[:space:]]*$/\1/p' \
+            "${CHART_DIR}/values.yaml" | head -1)"
+          if [ -z "$APP_VERSION" ]; then
+            echo "::error::${CHART_DIR}/values.yaml has no image.tag to release against"
+            exit 1
+          fi
+
+          echo "version=$VERSION"          >> "$GITHUB_OUTPUT"
+          echo "app_version=$APP_VERSION"  >> "$GITHUB_OUTPUT"
+          echo "pages_url=https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_OUTPUT"
 
       - name: Install Helm
         uses: azure/setup-helm@v3
 
-      - name: Validate Helm Charts
+      - name: Check out gh-pages
         shell: bash
         run: |
-          find src/charts/ -type f -name 'Chart.yaml' | sed -r 's|/[^/]+$||' | sort | uniq | xargs -L 1 helm dep up
-          for d in charts/*/ ; do
-              echo "$d"
-              helm lint --quiet "$d"
-          done
-      - name: Package Helm Charts
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch origin gh-pages
+            git worktree add /tmp/gh-pages origin/gh-pages
+          else
+            git worktree add --detach /tmp/gh-pages
+            git -C /tmp/gh-pages checkout --orphan gh-pages
+            git -C /tmp/gh-pages rm -rf . >/dev/null 2>&1 || true
+          fi
+
+      - name: Refuse to republish an existing version
         shell: bash
         run: |
-          find src/charts/ -type f -name 'Chart.yaml' | sed -r 's|/[^/]+$||' | sort | uniq | xargs -L 1 helm dep up
-          for d in src/charts/*/ ; do
-              echo "$d"
-              helm package "$d" -u -d dest
-          done
-      - name: Push New Files
+          set -euo pipefail
+          TGZ="/tmp/gh-pages/github-actions-exporter-${{ steps.v.outputs.version }}.tgz"
+          if [ -f "$TGZ" ]; then
+            echo "::error::chart ${{ steps.v.outputs.version }} is already published. Bump the version and tag again rather than overwriting a released artifact."
+            exit 1
+          fi
+
+      - name: Set chart versions
         shell: bash
-        working-directory: dest
         run: |
-          helm repo index . --url https://raw.githubusercontent.com/bold-dev/github-actions-exporter/gh-pages/
-          git config user.name "$GITHUB_ACTOR"
-          git config user.email "$GITHUB_ACTOR@users.noreply.github.com"  
-          git add $(git ls-files -o --exclude-standard)
-          git add index.yaml
-          git commit -m "Updated from ref: $GITHUB_SHA"
-          git push
+          set -euo pipefail
+          sed -i "s/^version:.*/version: ${{ steps.v.outputs.version }}/" "${CHART_DIR}/Chart.yaml"
+          sed -i "s/^appVersion:.*/appVersion: ${{ steps.v.outputs.app_version }}/" "${CHART_DIR}/Chart.yaml"
+          grep -E '^(version|appVersion):' "${CHART_DIR}/Chart.yaml"
+
+      - name: Lint and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          helm lint "${CHART_DIR}"
+          helm package "${CHART_DIR}" -u -d /tmp/gh-pages
+
+      - name: Publish to gh-pages
+        shell: bash
+        working-directory: /tmp/gh-pages
+        run: |
+          set -euo pipefail
+          touch .nojekyll
+          helm repo index . --url "${{ steps.v.outputs.pages_url }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "nothing to publish"; exit 0; }
+          git commit -m "chart: publish v${{ steps.v.outputs.version }}"
+          git push origin HEAD:gh-pages
+
+      - name: Record the released version on main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+          sed -i "s/^version:.*/version: ${{ steps.v.outputs.version }}/" "${CHART_DIR}/Chart.yaml"
+          sed -i "s/^appVersion:.*/appVersion: ${{ steps.v.outputs.app_version }}/" "${CHART_DIR}/Chart.yaml"
+          git add "${CHART_DIR}/Chart.yaml"
+          git diff --cached --quiet || {
+            git commit -m "chore: chart v${{ steps.v.outputs.version }}"
+            git push origin main
+          }
+
+      - name: Summary
+        shell: bash
+        run: |
+          {
+            echo "### Chart v${{ steps.v.outputs.version }} published"
+            echo ""
+            echo "- Repo: \`${{ steps.v.outputs.pages_url }}\`"
+            echo "- Deploys image tag: \`${{ steps.v.outputs.app_version }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
