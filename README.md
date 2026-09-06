@@ -266,6 +266,42 @@ carries the most recent sample forward. **Keep `lookback` comfortably longer
 than `serviceMonitor.interval`.** The trade-off is that a runner deleted from
 GitHub keeps alerting for up to `lookback` after it disappears.
 
+## Releasing
+
+The image and the chart are released independently, because the two do not
+move together: a chart change (new alert, new value, docs) needs no image
+build, and plenty of images — debug builds, interim fixes — should never
+reach a chart.
+
+| | Workflow | Trigger | Publishes |
+| --- | --- | --- | --- |
+| Image | `Release Image` | `v<x.y.z>` | Binary + GitHub release, `ghcr.io/<owner>/<repo>` |
+| Chart | `Chart Release` | `chart-v<x.y.z>` | Packaged chart to `gh-pages`, indexed at `https://<owner>.github.io/<repo>/` |
+
+```bash
+# publish a new image
+git tag v1.0.7       && git push origin v1.0.7
+
+# publish a new chart (independently)
+git tag chart-v1.2.0 && git push origin chart-v1.2.0
+```
+
+The link between them is `image.tag` in `values.yaml`. That value is what the
+chart deploys, and nothing updates it automatically — building an image does
+not put it in front of users. To ship a new image, edit `image.tag`, then cut
+a chart release. `Chart Release` copies that tag into the chart's `appVersion`
+so a published chart always records which image it installs.
+
+`Chart Release` refuses to publish a version that is already on `gh-pages`,
+rather than overwriting a released artifact with different content.
+
+Neither workflow hardcodes an owner: the image goes to
+`ghcr.io/${{ github.repository }}` and the chart index is built from
+`${{ github.repository_owner }}`, so a fork releases to its own registry and
+its own Pages site with no changes. A fork whose Pages site lives somewhere
+else — a private repo, say, or a custom domain — overrides the `--url` in
+`Chart Release`.
+
 ## Setting up authentication with GitHub API
 
 There are two ways for github-actions-exporter to authenticate with the GitHub API (only 1 can be configured at a time however):

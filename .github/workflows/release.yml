@@ -1,4 +1,8 @@
-name: Release
+# Releases the container image only. The chart is released separately by
+# chart_release.yaml on a chart-v* tag, so a new image is not deployed until
+# a chart release deliberately adopts it (values.yaml image.tag), and a chart
+# can be re-released without building a new image.
+name: Release Image
 
 on:
   push:
@@ -81,57 +85,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Update Helm chart versions
-        run: |
-          APP_VERSION="${{ steps.version.outputs.full }}"
-          APP_VERSION="${APP_VERSION#v}"
-          CHART_DIR="charts/github-actions-exporter"
-
-          git fetch origin main
-          git checkout main
-
-          sed -i "s/^version:.*/version: ${APP_VERSION}/" ${CHART_DIR}/Chart.yaml
-          sed -i "s/^appVersion:.*/appVersion: ${APP_VERSION}/" ${CHART_DIR}/Chart.yaml
-          sed -i 's/  tag: .*/  tag: "'"${APP_VERSION}"'"/' ${CHART_DIR}/values.yaml
-
-          echo "==============================="
-          echo "Chart version: ${APP_VERSION}"
-          echo "App version:   ${APP_VERSION}"
-          echo "Image tag:     ${APP_VERSION}"
-          echo "==============================="
-          echo ""
-          echo "--- Chart.yaml ---"
-          cat ${CHART_DIR}/Chart.yaml
-          echo ""
-          echo "--- values.yaml (image section) ---"
-          head -8 ${CHART_DIR}/values.yaml
-
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add charts/
-          git diff --cached --quiet || (git commit -m "chore: bump chart to v${APP_VERSION}" && git push origin main)
-
-      - name: Install Helm
-        uses: azure/setup-helm@v3
-
-      - name: Publish Helm chart to gh-pages
-        run: |
-          APP_VERSION="${{ steps.version.outputs.full }}"
-          APP_VERSION="${APP_VERSION#v}"
-          CHART_DIR="charts/github-actions-exporter"
-
-          git fetch origin gh-pages || git checkout --orphan gh-pages
-          git worktree add /tmp/gh-pages origin/gh-pages
-
-          helm package "${CHART_DIR}" -d /tmp/gh-pages
-          touch /tmp/gh-pages/.nojekyll
-          helm repo index /tmp/gh-pages --url https://amirwollman.github.io/github-actions-exporter/
-
-          cd /tmp/gh-pages
-          git add .
-          git diff --cached --quiet || (git commit -m "chart: publish v${APP_VERSION}" && git push origin HEAD:gh-pages)
-
-          echo "==============================="
-          echo "Chart v${APP_VERSION} published to gh-pages"
-          echo "==============================="
