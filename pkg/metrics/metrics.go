@@ -41,11 +41,11 @@ var (
 func InitMetrics(ctx context.Context, version string) {
 	Version = version
 
-	statusLabels := append(strings.Split(config.WorkflowFields, ","), "conclusion")
+	statusLabels := append(strings.Split(config.WorkflowFields, ","), "conclusion", "phase")
 	workflowRunStatusGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_workflow_run_status",
-			Help: "Workflow run status; value is always 1, state carried in conclusion label",
+			Help: "Workflow run status; value is always 1. conclusion carries GitHub's raw value, phase normalizes it to running/success/failed/cancelled",
 		},
 		statusLabels,
 	)

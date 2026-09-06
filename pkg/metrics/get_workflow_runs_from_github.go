@@ -69,6 +69,25 @@ func getRelevantFields(repo string, run *github.WorkflowRun, wfs map[string]map[
 	return result
 }
 
+// normalizeWorkflowPhase collapses GitHub's raw status/conclusion vocabulary
+// into the four buckets operators actually alert and dashboard on: a run is
+// "running" until it completes, and a completed run is "success", "failed"
+// or "cancelled". Conclusions without a clear-cut bucket are folded in:
+// neutral joins success, and skipped/stale join cancelled since neither
+// represents a genuine failure.
+func normalizeWorkflowPhase(conclusion string) string {
+	switch conclusion {
+	case "":
+		return "running"
+	case "success", "neutral":
+		return "success"
+	case "cancelled", "skipped", "stale":
+		return "cancelled"
+	default: // failure, timed_out, action_required, startup_failure, ...
+		return "failed"
+	}
+}
+
 func getWorkflowName(repo string, run *github.WorkflowRun, wfs map[string]map[int64]github.Workflow) string {
 	if r, ok := wfs[repo]; ok {
 		if w, ok := r[*run.WorkflowID]; ok {
@@ -155,9 +174,10 @@ func getWorkflowRunsFromGithub(ctx context.Context) {
 				}
 
 				conclusion := run.GetConclusion()
+				phase := normalizeWorkflowPhase(conclusion)
 
 				fields := getRelevantFields(repo, run, wfs)
-				statusFields := append(fields, conclusion)
+				statusFields := append(fields, conclusion, phase)
 				workflowRunStatusGauge.WithLabelValues(statusFields...).Set(1)
 
 				currentRunIDs[*run.ID] = struct{}{}

@@ -69,7 +69,9 @@ Gauge type
 | run_number | Build id for the repo (incremental id => 1/2/3/4/...) |
 | workflow_id | Workflow ID |
 | workflow | Workflow Name |
-| status | Workflow status (completed/in_progress) |
+| status | Raw Github status (queued/in_progress/completed/...) |
+| conclusion | Raw Github conclusion once completed (success/failure/cancelled/skipped/neutral/timed_out/action_required/stale/...), empty while the run hasn't completed |
+| phase | Normalized status for dashboards/alerts: `running` (not yet completed), `success`, `failed` or `cancelled` |
 
 ### github_workflow_run_duration_ms
 Gauge type
@@ -122,6 +124,11 @@ Gauge type
 ### github_runner_organization_status
 Gauge type
 (If you have self hosted runner for an organization)
+
+Fetched for every organization listed in `GITHUB_ORGAS`, plus the owner
+organization of every repository resolved from `GITHUB_REPOS` (or
+auto-discovered from `GITHUB_ORGAS`) — so org-level runners are exported even
+if you only configure `GITHUB_REPOS` and never set `GITHUB_ORGAS`.
 
 **Result possibility**
 
@@ -187,6 +194,25 @@ Example:
 # HELP github_workflow_usage Number of billable seconds used by a specific workflow during the current billing cycle. Any job re-runs are also included in the usage. Only apply to workflows in private repositories that use GitHub-hosted runners.
 # TYPE github_workflow_usage gauge
 github_workflow_usage_seconds{id="2862037",name="Create Release",node_id="MDg6V29ya2Zsb3cyODYyMDM3",repo="xxx/xxx",state="active",os="UBUNTU"} 706.609
+```
+
+## Alerting
+
+The Helm chart can optionally provision a `PrometheusRule` (requires the
+Prometheus Operator CRDs, same as `serviceMonitor`) with a `GithubRunnerDown`
+alert that fires when any repo-, organization- or enterprise-scoped runner
+(`github_runner_status`, `github_runner_organization_status`,
+`github_runner_enterprise_status`) reports offline for longer than
+`prometheusRule.runnerDown.for` (default `5m`):
+
+```yaml
+prometheusRule:
+  enabled: true
+  labels:
+    release: prometheus
+  runnerDown:
+    for: 5m
+    severity: critical
 ```
 
 ## Setting up authentication with GitHub API

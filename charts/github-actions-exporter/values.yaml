@@ -38,6 +38,18 @@ serviceMonitor:
   # targetLabels: []
   # metricRelabelings: []
 
+# Requires the Prometheus Operator (same CRD set as serviceMonitor above).
+prometheusRule:
+  enabled: no
+  labels:
+    release: prometheus
+  # namespace: monitoring
+  runnerDown:
+    # How long a runner must report offline before the alert fires. Covers
+    # repo-, organization- and enterprise-scoped runners.
+    for: 5m
+    severity: critical
+
 imagePullSecrets: []
 
 podAnnotations: {}

@@ -43,6 +43,7 @@ func patternMatches(pattern, name string) bool {
 
 var (
 	repositories   []string
+	organizations  []string
 	workflows      map[string]map[int64]github.Workflow
 	mu             sync.RWMutex
 	workflowsReady = make(chan struct{})
@@ -53,6 +54,18 @@ func getRepositories() []string {
 	defer mu.RUnlock()
 	result := make([]string, len(repositories))
 	copy(result, repositories)
+	return result
+}
+
+// getOrganizations returns every organization the exporter should fetch
+// org-level runners for: those explicitly configured via GITHUB_ORGAS, plus
+// the owner of every configured/discovered repository, so org-level runners
+// are included even when only GITHUB_REPOS is set.
+func getOrganizations() []string {
+	mu.RLock()
+	defer mu.RUnlock()
+	result := make([]string, len(organizations))
+	copy(result, organizations)
 	return result
 }
 
@@ -169,11 +182,12 @@ func periodicGithubFetcher(ctx context.Context) {
 	firstFetch := true
 	for {
 		var reposToFetch []string
+		explicitOrgs := expandCommaSlice(config.Github.Organizations.Value())
 		repos := expandCommaSlice(config.Github.Repositories.Value())
 		if len(repos) > 0 {
 			reposToFetch = repos
 		} else {
-			for _, orga := range expandCommaSlice(config.Github.Organizations.Value()) {
+			for _, orga := range explicitOrgs {
 				reposToFetch = append(reposToFetch, getAllReposForOrg(ctx, orga)...)
 			}
 		}
@@ -191,8 +205,27 @@ func periodicGithubFetcher(ctx context.Context) {
 			log.Printf("Fetched %d workflows for repository %s", len(ww[repo]), repo)
 		}
 
+		// Org-level runners are relevant for every organization that owns a
+		// configured/discovered repository, not just those explicitly listed
+		// in GITHUB_ORGAS, so they are included even when only GITHUB_REPOS
+		// is set.
+		orgSet := make(map[string]struct{})
+		for _, orga := range explicitOrgs {
+			orgSet[orga] = struct{}{}
+		}
+		for _, repo := range reposToFetch {
+			if owner := strings.SplitN(repo, "/", 2)[0]; owner != "" {
+				orgSet[owner] = struct{}{}
+			}
+		}
+		orgsToFetch := make([]string, 0, len(orgSet))
+		for orga := range orgSet {
+			orgsToFetch = append(orgsToFetch, orga)
+		}
+
 		mu.Lock()
 		repositories = nonEmptyRepos
+		organizations = orgsToFetch
 		workflows = ww
 		mu.Unlock()
 

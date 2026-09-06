@@ -63,7 +63,7 @@ func getRunnersOrganizationFromGithub(ctx context.Context) {
 		runnersOrganizationStatusGauge.Reset()
 		runnersOrganizationBusyGauge.Reset()
 
-		for _, orga := range config.Github.Organizations.Value() {
+		for _, orga := range getOrganizations() {
 			runners := getAllOrgRunners(ctx, orga)
 			for _, runner := range runners {
 				labels := []string{orga, *runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)}
