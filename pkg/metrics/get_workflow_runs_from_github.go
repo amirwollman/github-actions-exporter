@@ -101,7 +101,11 @@ func getWorkflowName(repo string, run *github.WorkflowRun, wfs map[string]map[in
 	return "unknown"
 }
 
-func getRecentWorkflowRuns(ctx context.Context, owner string, repo string) []*github.WorkflowRun {
+// getRecentWorkflowRuns returns the runs created inside the window and
+// whether the listing completed. A partial listing must not be published:
+// the gauges are reset before repopulating, so publishing it would drop
+// every run the failed page would have carried.
+func getRecentWorkflowRuns(ctx context.Context, owner string, repo string) ([]*github.WorkflowRun, bool) {
 	windowHours := config.Metrics.WorkflowRunWindowHours
 	if windowHours <= 0 {
 		windowHours = 12
@@ -118,13 +122,13 @@ func getRecentWorkflowRuns(ctx context.Context, owner string, repo string) []*gi
 		if rl_err, ok := err.(*github.RateLimitError); ok {
 			log.Printf("ListRepositoryWorkflowRuns ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
 			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
-				return runs
+				return nil, false
 			}
 			continue
 		} else if err != nil {
 			log.Printf("ListRepositoryWorkflowRuns error for repo %s/%s: %s", owner, repo, err.Error())
 			scrapeErrorsTotal.WithLabelValues("workflow_runs").Inc()
-			return runs
+			return nil, false
 		}
 		updateRateLimit(rr)
 
@@ -135,7 +139,7 @@ func getRecentWorkflowRuns(ctx context.Context, owner string, repo string) []*gi
 		opt.Page = rr.NextPage
 	}
 
-	return runs
+	return runs, true
 }
 
 func getRunUsage(ctx context.Context, owner string, repo string, runId int64) *github.WorkflowRunUsage {
@@ -163,13 +167,17 @@ func getWorkflowRunsFromGithub(ctx context.Context) {
 		repos := getRepositories()
 		wfs := getWorkflows()
 
-		workflowRunStatusGauge.Reset()
-
+		var statusSamples [][]string
 		currentRunIDs := make(map[int64]struct{})
+		complete := true
 
 		for _, repo := range repos {
 			r := strings.Split(repo, "/")
-			runs := getRecentWorkflowRuns(ctx, r[0], r[1])
+			runs, ok := getRecentWorkflowRuns(ctx, r[0], r[1])
+			if !ok {
+				complete = false
+				break
+			}
 
 			for _, run := range runs {
 				workflowName := getWorkflowName(repo, run, wfs)
@@ -181,8 +189,7 @@ func getWorkflowRunsFromGithub(ctx context.Context) {
 				phase := normalizeWorkflowPhase(conclusion)
 
 				fields := getRelevantFields(repo, run, wfs)
-				statusFields := append(fields, conclusion, phase)
-				workflowRunStatusGauge.WithLabelValues(statusFields...).Set(1)
+				statusSamples = append(statusSamples, append(fields, conclusion, phase))
 
 				currentRunIDs[*run.ID] = struct{}{}
 				isCompleted := conclusion != "" && conclusion != "in_progress" && conclusion != "queued"
@@ -220,11 +227,22 @@ func getWorkflowRunsFromGithub(ctx context.Context) {
 			}
 		}
 
-		// Prune observed run IDs no longer in the current window
-		for id := range observedRuns {
-			if _, exists := currentRunIDs[id]; !exists {
-				delete(observedRuns, id)
+		if complete {
+			workflowRunStatusGauge.Reset()
+			for _, fields := range statusSamples {
+				workflowRunStatusGauge.WithLabelValues(fields...).Set(1)
 			}
+
+			// Prune observed run IDs no longer in the current window. Only safe
+			// on a complete listing: dropping an ID that a failed page would
+			// have carried would let its run be counted twice.
+			for id := range observedRuns {
+				if _, exists := currentRunIDs[id]; !exists {
+					delete(observedRuns, id)
+				}
+			}
+		} else {
+			log.Printf("Incomplete workflow run listing, keeping previously exported values")
 		}
 
 		scrapeDurationSeconds.WithLabelValues("workflow_runs").Set(time.Since(start).Seconds())

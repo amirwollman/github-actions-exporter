@@ -105,6 +105,37 @@ Gauge type
 ### github_job
 > :warning: **This is a duplicate of the `github_workflow_run_status` metric that will soon be deprecated, do not use anymore.**
 
+### github_job_status
+Gauge type (enable with `FETCH_JOB_METRICS=true`)
+
+Value is always 1; the state is carried in the labels.
+
+| Label | Description |
+| --- | --- |
+| repo | Repository the run belongs to |
+| workflow | Workflow name |
+| run_id | ID of the workflow run the job belongs to |
+| job_name | Job name |
+| status | `queued`, `in_progress` or `completed` |
+| conclusion | Set once the job completes (`success`/`failure`/`cancelled`/...), empty while it is queued or running |
+| runner_name | Name of the runner executing the job, matching the `name` label on `github_runner_status` / `github_runner_organization_status`. Empty while the job is still queued |
+
+**Which job is a runner working on right now:**
+
+```promql
+github_job_status{status="in_progress"}
+```
+
+`runner_name` is the join key back to the runner metrics, so a table of
+`github_job_status{status="in_progress"}` gives you runner → repo → workflow →
+job for everything currently executing.
+
+Jobs of a run that has finished are fetched once and cached until the run
+leaves the `WORKFLOW_RUN_WINDOW_HOURS` window; only queued and running jobs are
+re-fetched each cycle. Without that cache the collector spent one API call per
+run in the window on every pass, which on a busy repo is enough to exhaust a
+5000/hour token and stall every other collector on the rate-limit pause.
+
 ### github_runner_status
 Gauge type
 (If you have self hosted runner)
