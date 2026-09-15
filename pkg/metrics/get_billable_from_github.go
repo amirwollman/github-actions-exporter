@@ -9,7 +9,6 @@ import (
 
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 
-	"github.com/google/go-github/v45/github"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -36,9 +35,8 @@ func getBillableFromGithub(ctx context.Context) {
 
 				for {
 					resp, rr, err := client.Actions.GetWorkflowUsageByID(ctx, r[0], r[1], k)
-					if rl_err, ok := err.(*github.RateLimitError); ok {
-						log.Printf("GetWorkflowUsageByID ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-						if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+					if retry, isRL := pauseForRateLimit(ctx, err, "billable", "GetWorkflowUsageByID"); isRL {
+						if !retry {
 							return
 						}
 						continue

@@ -28,6 +28,12 @@ func initCollectorMetrics() {
 		prometheus.GaugeOpts{Name: "github_exporter_api_rate_limit_remaining", Help: "h"}, []string{"resource"})
 	apiRateLimitLimit = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{Name: "github_exporter_api_rate_limit_limit", Help: "h"}, []string{"resource"})
+	rateLimitPausesTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{Name: "github_exporter_rate_limit_pauses_total", Help: "h"}, []string{"collector", "kind"})
+
+	// Counters accumulate across tests in the same package unless cleared.
+	jobConclusionsTotal.Reset()
+	jobQueueWaitGauge.Reset()
 }
 
 func runsPayload() string {
@@ -150,6 +156,9 @@ func TestJobsExportInProgressWithRunner(t *testing.T) {
 	completedJobs = make(map[int64][]jobSample)
 	jobStatusGauge.Reset()
 
+	config.Metrics.RunnerLabels = true
+	defer func() { config.Metrics.RunnerLabels = false }()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -165,6 +174,7 @@ func TestJobsExportInProgressWithRunner(t *testing.T) {
 	})
 	mux.HandleFunc("/repos/o/r/actions/runs/2/jobs", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, `{"total_count":1,"jobs":[{"id":201,"name":"e2e","status":"in_progress","conclusion":null,
+			"labels":["self-hosted","Windows","X64"],
 			"runner_name":"Windows-X86-CI-1","started_at":"2026-09-06T10:10:30Z"}]}`)
 	})
 
@@ -184,16 +194,22 @@ func TestJobsExportInProgressWithRunner(t *testing.T) {
 	go func() { getJobsFromGithub(ctx); close(done) }()
 	<-done
 
+	// runs-on labels are sorted, so the same pool keeps one series however
+	// GitHub happens to order them.
 	running := testutil.ToFloat64(jobStatusGauge.WithLabelValues(
-		"o/r", "CI", "2", "e2e", "in_progress", "", "Windows-X86-CI-1"))
+		"o/r", "CI", "2", "e2e", "in_progress", "", "Windows-X86-CI-1", "Windows,X64,self-hosted"))
 	if running != 1 {
 		t.Errorf("in-progress job not exported for its runner (got %v)", running)
 	}
 
 	finished := testutil.ToFloat64(jobStatusGauge.WithLabelValues(
-		"o/r", "CI", "1", "build", "completed", "success", "runner-a"))
+		"o/r", "CI", "1", "build", "completed", "success", "runner-a", ""))
 	if finished != 1 {
 		t.Errorf("completed job not exported (got %v)", finished)
+	}
+
+	if got := testutil.ToFloat64(jobConclusionsTotal.WithLabelValues("o/r", "CI", "build", "", "success")); got != 1 {
+		t.Errorf("completed job not counted by conclusion (got %v)", got)
 	}
 }
 
@@ -205,5 +221,55 @@ func setFixtureRepos() {
 	id := int64(10)
 	workflows = map[string]map[int64]github.Workflow{
 		"o/r": {10: github.Workflow{ID: &id, Name: &name}},
+	}
+}
+
+// A job that never finds a runner never starts, so it never lands in the queue
+// histogram. Without this gauge the worst case - starvation - is the one thing
+// the metrics cannot show.
+func TestQueuedJobExposesItsWait(t *testing.T) {
+	initCollectorMetrics()
+	completedJobs = make(map[int64][]jobSample)
+	jobStatusGauge.Reset()
+
+	config.Metrics.RunnerLabels = true
+	defer func() { config.Metrics.RunnerLabels = false }()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	mux := http.NewServeMux()
+	var once sync.Once
+	mux.HandleFunc("/repos/o/r/actions/runs", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, runsPayload())
+		once.Do(func() { go func() { time.Sleep(300 * time.Millisecond); cancel() }() })
+	})
+	mux.HandleFunc("/repos/o/r/actions/runs/1/jobs", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"total_count":0,"jobs":[]}`)
+	})
+	mux.HandleFunc("/repos/o/r/actions/runs/2/jobs", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, `{"total_count":1,"jobs":[{"id":301,"name":"e2e","status":"queued","conclusion":null,
+			"labels":["macOS","self-hosted"]}]}`)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	oldClient := client
+	defer func() { client = oldClient }()
+	client = github.NewClient(nil)
+	client.BaseURL, _ = url.Parse(srv.URL + "/")
+
+	setFixtureRepos()
+	config.Github.Refresh = 0
+	config.Metrics.WorkflowRunWindowHours = 12
+
+	done := make(chan struct{})
+	go func() { getJobsFromGithub(ctx); close(done) }()
+	<-done
+
+	wait := testutil.ToFloat64(jobQueueWaitGauge.WithLabelValues("o/r", "CI", "e2e", "macOS,self-hosted"))
+	if wait <= 0 {
+		t.Errorf("queued job should report a positive wait, got %v", wait)
 	}
 }
