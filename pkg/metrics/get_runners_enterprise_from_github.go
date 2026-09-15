@@ -18,14 +18,14 @@ var (
 			Name: "github_runner_enterprise_status",
 			Help: "Enterprise runner online status (1=online, 0=offline)",
 		},
-		[]string{"os", "name", "id"},
+		[]string{"os", "name", "id", "runner_labels"},
 	)
 	runnersEnterpriseBusyGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_runner_enterprise_busy",
 			Help: "Enterprise runner busy status (1=busy, 0=idle)",
 		},
-		[]string{"os", "name", "id"},
+		[]string{"os", "name", "id", "runner_labels"},
 	)
 )
 
@@ -38,9 +38,8 @@ func getAllEnterpriseRunners(ctx context.Context) ([]*github.Runner, bool) {
 
 	for {
 		resp, rr, err := client.Enterprise.ListRunners(ctx, config.EnterpriseName, opt)
-		if rl_err, ok := err.(*github.RateLimitError); ok {
-			log.Printf("ListRunners ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+		if retry, isRL := pauseForRateLimit(ctx, err, "runners_enterprise", "ListRunners"); isRL {
+			if !retry {
 				return nil, false
 			}
 			continue
@@ -73,7 +72,7 @@ func getRunnersEnterpriseFromGithub(ctx context.Context) {
 			samples := make([]runnerSample, 0, len(runners))
 			for _, runner := range runners {
 				samples = append(samples, runnerSample{
-					labels: []string{*runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10)},
+					labels: []string{*runner.OS, *runner.Name, strconv.FormatInt(runner.GetID(), 10), runnerPoolLabels(runner.Labels)},
 					online: runner.GetStatus() == "online",
 					busy:   runner.GetBusy(),
 				})

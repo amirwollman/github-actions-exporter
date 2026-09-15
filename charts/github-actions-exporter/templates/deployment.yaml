@@ -36,10 +36,16 @@ spec:
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           env:
           {{- range $name, $value := .Values.env }}
-          {{- if not (empty $value) }}
+          {{- /* Only nil and "" are skipped. `empty` would also drop false and 0,
+                 which silently turns every "off" toggle back on. */}}
+          {{- if not (or (kindIs "invalid" $value) (and (kindIs "string" $value) (eq $value ""))) }}
           - name: {{ $name | quote }}
             value: {{ $value | quote }}
           {{- end }}
+          {{- end }}
+          {{- range $name, $value := include "github-actions-exporter.metricsEnv" $ | fromYaml }}
+          - name: {{ $name | quote }}
+            value: {{ $value | quote }}
           {{- end }}
           - name: GITHUB_TOKEN
             valueFrom:

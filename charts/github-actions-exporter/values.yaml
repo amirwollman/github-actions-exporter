@@ -10,7 +10,10 @@ fullnameOverride: ""
 
 env:
   PORT: 9999
-  GITHUB_REFRESH: 30
+  # Seconds between collector cycles. Each cycle costs API calls per repo, so a
+  # short interval burns the hourly quota without making data any fresher than
+  # serviceMonitor.interval below.
+  GITHUB_REFRESH: 300
   GITHUB_API_URL: api.github.com
   GITHUB_ORGS: ""
   GITHUB_REPOS: ""
@@ -37,6 +40,37 @@ serviceMonitor:
   # timeout: 10s
   # targetLabels: []
   # metricRelabelings: []
+
+# Which metrics to export, by area. Each area gates a collector as well as its
+# series, so turning one off also stops the API calls it makes. Omit a key to
+# leave the exporter's own default in place.
+metrics:
+  runners:
+    repo: true
+    organization: true
+    # Needs ENTERPRISE_NAME to be set.
+    enterprise: false
+  workflowRuns:
+    # Per-run gauge. The highest-cardinality metric here: it mints a series per
+    # run and holds it for WORKFLOW_RUN_WINDOW_HOURS. Trim EXPORT_FIELDS (drop
+    # id, node_id, head_sha, run_number) before reaching for this switch.
+    status: true
+    # Duration and queue histograms plus github_workflow_runs_total. Cheap, and
+    # complete rather than sampled, so prefer these for rates and percentiles.
+    summary: true
+  jobs:
+    # Costs one API call per run in the window, so it is the most expensive area.
+    enabled: false
+    # Per-job gauge and github_job_queue_wait_seconds.
+    status: true
+    # Duration/queue histograms and github_job_conclusions_total.
+    summary: true
+  # One API call per run. Only useful for GitHub-hosted billable minutes.
+  billable: false
+  # Adds runner_labels (the runs-on pool) to runner and job metrics, which is
+  # what makes "which pool is contended" answerable. Turn off to drop the
+  # dimension if it costs more series than that insight is worth.
+  runnerLabels: true
 
 # Requires the Prometheus Operator (same CRD set as serviceMonitor above).
 prometheusRule:

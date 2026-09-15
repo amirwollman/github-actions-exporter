@@ -125,9 +125,8 @@ func getAllReposForOrg(ctx context.Context, orga string) []string {
 	}
 	for {
 		reposPage, resp, err := client.Repositories.ListByOrg(ctx, orga, opt)
-		if rl_err, ok := err.(*github.RateLimitError); ok {
-			log.Printf("ListByOrg ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+		if retry, isRL := pauseForRateLimit(ctx, err, "fetcher", "ListByOrg"); isRL {
+			if !retry {
 				return allRepos
 			}
 			continue
@@ -156,9 +155,8 @@ func getAllWorkflowsForRepo(ctx context.Context, owner string, repo string) map[
 
 	for {
 		workflowsPage, resp, err := client.Actions.ListWorkflows(ctx, owner, repo, opt)
-		if rl_err, ok := err.(*github.RateLimitError); ok {
-			log.Printf("ListWorkflows ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+		if retry, isRL := pauseForRateLimit(ctx, err, "fetcher", "ListWorkflows"); isRL {
+			if !retry {
 				return res
 			}
 			continue

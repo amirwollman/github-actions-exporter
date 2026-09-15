@@ -17,9 +17,20 @@ var (
 	jobStatusGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Name: "github_job_status",
-			Help: "Job status; value is 1. status is queued/in_progress/completed, conclusion is set once completed, runner_name names the runner executing it",
+			Help: "Job status; value is 1. status is queued/in_progress/completed, conclusion is set once completed, runner_name names the runner executing it, runner_labels the runs-on pool it asked for",
 		},
-		[]string{"repo", "workflow", "run_id", "job_name", "status", "conclusion", "runner_name"},
+		[]string{"repo", "workflow", "run_id", "job_name", "status", "conclusion", "runner_name", "runner_labels"},
+	)
+
+	// Only queued jobs carry a value here. A job that never finds a runner
+	// never starts, so it never reaches the queue histogram below - starvation,
+	// the worst case, would otherwise be the one thing the metrics cannot see.
+	jobQueueWaitGauge = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "github_job_queue_wait_seconds",
+			Help: "Seconds a currently-queued job has been waiting for a runner",
+		},
+		[]string{"repo", "workflow", "job_name", "runner_labels"},
 	)
 
 	jobDurationHistogram = prometheus.NewHistogramVec(
@@ -28,7 +39,7 @@ var (
 			Help:    "Duration of completed jobs in seconds",
 			Buckets: []float64{5, 10, 30, 60, 120, 300, 600, 1200},
 		},
-		[]string{"repo", "workflow", "job_name"},
+		[]string{"repo", "workflow", "job_name", "runner_labels", "event"},
 	)
 
 	jobQueueDurationHistogram = prometheus.NewHistogramVec(
@@ -37,7 +48,18 @@ var (
 			Help:    "Time a job waited for a runner before starting",
 			Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
 		},
-		[]string{"repo", "workflow", "job_name"},
+		[]string{"repo", "workflow", "job_name", "runner_labels", "event"},
+	)
+
+	// A counter, unlike the status gauge, so failure and flake rates are exact
+	// rather than sampled: a job that starts and finishes between two scrapes
+	// never appears in the gauge, but is always counted here.
+	jobConclusionsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "github_job_conclusions_total",
+			Help: "Completed jobs by conclusion (success/failure/cancelled/skipped/...)",
+		},
+		[]string{"repo", "workflow", "job_name", "runner_labels", "conclusion"},
 	)
 )
 
@@ -51,6 +73,10 @@ type jobSample struct {
 	status     string
 	conclusion string
 	runnerName string
+	poolLabels string
+	// Set only while the job is queued, so the wait can be recomputed on each
+	// cycle rather than frozen at the moment the job was fetched.
+	queuedSince time.Time
 }
 
 // completedJobs caches the jobs of runs that have finished, keyed by run ID.
@@ -72,9 +98,8 @@ func getAllJobsForRun(ctx context.Context, owner, repo string, runID int64) ([]*
 
 	for {
 		resp, rr, err := client.Actions.ListWorkflowJobs(ctx, owner, repo, runID, opt)
-		if rl_err, ok := err.(*github.RateLimitError); ok {
-			log.Printf("ListWorkflowJobs ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+		if retry, isRL := pauseForRateLimit(ctx, err, "jobs", "ListWorkflowJobs"); isRL {
+			if !retry {
 				return nil, false
 			}
 			continue
@@ -147,7 +172,7 @@ func getJobsFromGithub(ctx context.Context) {
 						continue
 					}
 
-					runSamples = append(runSamples, jobSample{
+					sample := jobSample{
 						repo:       repo,
 						workflow:   workflowName,
 						runID:      strconv.FormatInt(runID, 10),
@@ -155,10 +180,15 @@ func getJobsFromGithub(ctx context.Context) {
 						status:     job.GetStatus(),
 						conclusion: job.GetConclusion(),
 						runnerName: job.GetRunnerName(),
-					})
+						poolLabels: joinPoolLabels(job.Labels),
+					}
+					if job.GetStatus() == "queued" && run.CreatedAt != nil {
+						sample.queuedSince = run.CreatedAt.Time
+					}
+					runSamples = append(runSamples, sample)
 
 					if completed {
-						observeJobDurations(repo, workflowName, jobName, run, job)
+						observeJobDurations(repo, workflowName, jobName, sample.poolLabels, run, job)
 					}
 				}
 
@@ -175,8 +205,12 @@ func getJobsFromGithub(ctx context.Context) {
 
 		if complete {
 			jobStatusGauge.Reset()
+			jobQueueWaitGauge.Reset()
 			for _, s := range samples {
-				jobStatusGauge.WithLabelValues(s.repo, s.workflow, s.runID, s.jobName, s.status, s.conclusion, s.runnerName).Set(1)
+				jobStatusGauge.WithLabelValues(s.repo, s.workflow, s.runID, s.jobName, s.status, s.conclusion, s.runnerName, s.poolLabels).Set(1)
+				if !s.queuedSince.IsZero() {
+					jobQueueWaitGauge.WithLabelValues(s.repo, s.workflow, s.jobName, s.poolLabels).Set(time.Since(s.queuedSince).Seconds())
+				}
 			}
 
 			for id := range completedJobs {
@@ -196,16 +230,20 @@ func getJobsFromGithub(ctx context.Context) {
 	}
 }
 
-func observeJobDurations(repo, workflow, jobName string, run *github.WorkflowRun, job *github.WorkflowJob) {
+func observeJobDurations(repo, workflow, jobName, poolLabels string, run *github.WorkflowRun, job *github.WorkflowJob) {
+	event := run.GetEvent()
+
 	if job.CompletedAt != nil && job.StartedAt != nil {
 		if d := job.CompletedAt.Time.Sub(job.StartedAt.Time).Seconds(); d >= 0 {
-			jobDurationHistogram.WithLabelValues(repo, workflow, jobName).Observe(d)
+			jobDurationHistogram.WithLabelValues(repo, workflow, jobName, poolLabels, event).Observe(d)
 		}
 	}
 
 	if job.StartedAt != nil && run.CreatedAt != nil {
 		if d := job.StartedAt.Time.Sub(run.CreatedAt.Time).Seconds(); d >= 0 {
-			jobQueueDurationHistogram.WithLabelValues(repo, workflow, jobName).Observe(d)
+			jobQueueDurationHistogram.WithLabelValues(repo, workflow, jobName, poolLabels, event).Observe(d)
 		}
 	}
+
+	jobConclusionsTotal.WithLabelValues(repo, workflow, jobName, poolLabels, job.GetConclusion()).Inc()
 }

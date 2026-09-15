@@ -34,13 +34,79 @@ Authentication can either via a Github Token or the Github App Authentication 3 
 | Github App Id | app_id, gai | GITHUB_APP_ID |  | Github App Authentication App Id |
 | Github App Installation Id | app_installation_id, gii | GITHUB_APP_INSTALLATION_ID | - | Github App Authentication Installation Id |
 | Github App Private Key | app_private_key, gpk | GITHUB_APP_PRIVATE_KEY | - | Github App Authentication Private Key |
-| Github Refresh | github_refresh, gr | GITHUB_REFRESH | 30 | Refresh time Github Actions status in sec |
+| Github Refresh | github_refresh, gr | GITHUB_REFRESH | 300 | Seconds between collector cycles. Each cycle costs API calls per repo, more with job metrics, so a short interval burns the hourly quota. It cannot make data fresher than your Prometheus scrape interval either |
 | Github Organizations | github_orgs, go | GITHUB_ORGS | - | List all organizations you want get informations. Format \<org1>,\<org2>,\<org3> (like test1,test2). `github_orgas` / `GITHUB_ORGAS` remain accepted as deprecated aliases; `GITHUB_ORGS` wins if both are set |
 | Github Repos | github_repos, grs | GITHUB_REPOS | - | [Optional] List all repositories you want get informations. Format \<orga>/\<repo>,\<orga>/\<repo2>,\<orga>/\<repo3> (like test/test). Defaults to all repositories owned by the organizations. |
 | Exporter port | port, p | PORT | 9999 | Exporter port |
 | Github Api URL | github_api_url, url | GITHUB_API_URL | api.github.com | Github API URL (primarily for Github Enterprise usage) |
 | Github Enterprise Name | enterprise_name | ENTERPRISE_NAME | "" | Enterprise name. Needed for enterprise endpoints (/enterprises/{ENTERPRISE_NAME}/*). Currently used to get Enterprise level tunners status |
 | Fields to export | export_fields | EXPORT_FIELDS | repo,id,node_id,head_branch,head_sha,run_number,workflow_id,workflow,event,status | A comma separated list of fields for workflow metrics that should be exported. Valid values: `repo`, `id`, `node_id`, `head_branch`, `head_sha`, `run_number`, `run_attempt`, `workflow_id`, `workflow`, `event`, `status`. Unknown, repeated, and the always-exported `conclusion`/`phase` are dropped with a log line |
+
+## Choosing what to export
+
+Every area below gates a collector as well as its series, so switching one off
+stops the API calls it makes too. That matters: the exporter polls, and the
+hourly quota is the real budget.
+
+| Area | Env var | Default | Cost |
+| --- | --- | --- | --- |
+| Repo runners | `METRICS_RUNNERS_REPO` | true | 1 call per repo per cycle |
+| Org runners | `METRICS_RUNNERS_ORG` | true | 1 call per org per cycle |
+| Enterprise runners | `METRICS_RUNNERS_ENTERPRISE` | false | 1 call per cycle, needs `ENTERPRISE_NAME` |
+| Run status gauge | `METRICS_WORKFLOW_RUN_STATUS` | true | shares the run listing; highest cardinality |
+| Run histograms + total | `METRICS_WORKFLOW_RUN_SUMMARY` | true | shares the run listing; cheap |
+| Job status gauge + queue wait | `METRICS_JOB_STATUS` | true | needs `FETCH_JOB_METRICS` |
+| Job histograms + conclusions | `METRICS_JOB_SUMMARY` | true | needs `FETCH_JOB_METRICS` |
+| Billable minutes | `FETCH_WORKFLOW_RUN_USAGE` | true | **1 call per run**, the most expensive |
+| `runner_labels` dimension | `METRICS_RUNNER_LABELS` | true | no calls, adds one label |
+
+### Sampled or complete
+
+Two kinds of metric live here and they are not equally trustworthy:
+
+- **Gauges** (`github_job_status`, `github_runner_*`, `github_workflow_run_status`)
+  are a snapshot, reset each cycle. Anything that starts and finishes between
+  two scrapes never existed. Use them for "what is true now", never for rates.
+- **Histograms and counters** (`github_job_duration_seconds`,
+  `github_job_queue_duration_seconds`, `github_job_conclusions_total`,
+  `github_workflow_runs_total`) are observed once per completed job or run and
+  accumulate, so they are complete regardless of scrape interval. Use these for
+  every rate, percentile and failure ratio.
+
+Note that Prometheus only considers a sample for 5 minutes after it is scraped.
+If your scrape interval is longer than that, instant queries against the gauges
+return empty most of the time; see [Why `lookback` exists](#why-lookback-exists).
+
+### Which metric answers which question
+
+| Question | Query |
+| --- | --- |
+| Which runners are down, and for how long | `github_runner_status == 0`, `github_runner_organization_status == 0` |
+| Is a runner flapping | `changes(github_runner_organization_status[6h])` |
+| How busy is each pool | `avg_over_time(github_runner_organization_busy[1h])` by `runner_labels` |
+| Spare capacity in a pool | `count by (runner_labels) (github_runner_organization_status == 1)` |
+| Which pool is contended | `histogram_quantile(0.95, sum by (le, runner_labels) (rate(github_job_queue_duration_seconds_bucket[1h])))` |
+| Is anything starving right now | `max by (repo, runner_labels) (github_job_queue_wait_seconds)` |
+| How long a job waits before starting | `github_job_queue_duration_seconds` |
+| Which runner is running which job | `github_job_status{status="in_progress"}`, join on `runner_name` |
+| How many jobs are queued per repo | `count by (repo) (github_job_status{status="queued"})` |
+| Slowest jobs | `histogram_quantile(0.95, sum by (le, job_name) (rate(github_job_duration_seconds_bucket[1d])))` |
+| PR CI vs nightly latency | the histograms above, split by `event` |
+| Job failure and flake rate | `rate(github_job_conclusions_total{conclusion="failure"}[1d])` |
+| Is the exporter being throttled | `rate(github_exporter_rate_limit_pauses_total[1h])` |
+
+### Cardinality
+
+`github_workflow_run_status` is by far the most expensive metric: `id`,
+`node_id`, `head_sha` and `run_number` are unique per run, so it mints a series
+per run and holds it for `WORKFLOW_RUN_WINDOW_HOURS`. On one busy repo that was
+~560 new series a day; dropping those four fields from `EXPORT_FIELDS` took the
+same data from 612 series to 58. Trim them before you reach for
+`METRICS_WORKFLOW_RUN_STATUS=false`.
+
+`runner_labels` is bounded by the number of distinct `runs-on` sets, which is
+small and roughly fixed. It is sorted before joining, so a pool keeps one
+series however GitHub happens to order the labels.
 
 ## Exported stats
 
@@ -135,6 +201,32 @@ leaves the `WORKFLOW_RUN_WINDOW_HOURS` window; only queued and running jobs are
 re-fetched each cycle. Without that cache the collector spent one API call per
 run in the window on every pass, which on a busy repo is enough to exhaust a
 5000/hour token and stall every other collector on the rate-limit pause.
+
+### github_job_queue_wait_seconds
+Gauge type (enable with `FETCH_JOB_METRICS=true`)
+
+Seconds a **currently queued** job has been waiting. Labels: `repo`, `workflow`,
+`job_name`, `runner_labels`.
+
+This exists because `github_job_queue_duration_seconds` is only observed when a
+job *starts*. A job that never finds a matching runner never starts, so the
+worst case would otherwise be invisible in exactly the metric you would watch.
+
+### github_job_conclusions_total
+Counter type (enable with `FETCH_JOB_METRICS=true`)
+
+Completed jobs by `conclusion`, with `repo`, `workflow`, `job_name` and
+`runner_labels`. Prefer this over counting `github_job_status` for failure and
+flake rates: a job that starts and finishes between two scrapes never appears in
+the gauge, but is always counted here.
+
+### github_exporter_rate_limit_pauses_total
+Counter type
+
+Times a collector was paused by a GitHub rate limit, by `collector` and `kind`
+(`primary` or `secondary`). A climbing rate here means the exporter is asking
+GitHub for more than the quota allows: raise `GITHUB_REFRESH`, narrow
+`GITHUB_REPOS`, or switch off an area above.
 
 ### github_runner_status
 Gauge type

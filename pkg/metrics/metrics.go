@@ -117,22 +117,39 @@ func InitMetrics(ctx context.Context, version string) {
 		[]string{"resource"},
 	)
 
-	prometheus.MustRegister(runnersStatusGauge)
-	prometheus.MustRegister(runnersBusyGauge)
-	prometheus.MustRegister(runnersOrganizationStatusGauge)
-	prometheus.MustRegister(runnersOrganizationBusyGauge)
-	prometheus.MustRegister(runnersEnterpriseStatusGauge)
-	prometheus.MustRegister(runnersEnterpriseBusyGauge)
-	prometheus.MustRegister(workflowRunStatusGauge)
-	prometheus.MustRegister(workflowRunDurationHistogram)
-	prometheus.MustRegister(workflowRunQueueDuration)
-	prometheus.MustRegister(workflowRunsTotal)
-	prometheus.MustRegister(workflowBillGauge)
+	// Each area registers and starts together: an unregistered collector is
+	// also not polled, so switching an area off buys back its API calls as
+	// well as its series.
 	prometheus.MustRegister(buildInfoGauge)
 	prometheus.MustRegister(scrapeErrorsTotal)
 	prometheus.MustRegister(scrapeDurationSeconds)
 	prometheus.MustRegister(apiRateLimitRemaining)
 	prometheus.MustRegister(apiRateLimitLimit)
+	prometheus.MustRegister(rateLimitPausesTotal)
+
+	if config.Metrics.WorkflowRunStatus {
+		prometheus.MustRegister(workflowRunStatusGauge)
+	}
+	if config.Metrics.WorkflowRunSummary {
+		prometheus.MustRegister(workflowRunDurationHistogram)
+		prometheus.MustRegister(workflowRunQueueDuration)
+		prometheus.MustRegister(workflowRunsTotal)
+	}
+	if config.Metrics.RunnersRepo {
+		prometheus.MustRegister(runnersStatusGauge)
+		prometheus.MustRegister(runnersBusyGauge)
+	}
+	if config.Metrics.RunnersOrg {
+		prometheus.MustRegister(runnersOrganizationStatusGauge)
+		prometheus.MustRegister(runnersOrganizationBusyGauge)
+	}
+	if config.Metrics.RunnersEnterprise {
+		prometheus.MustRegister(runnersEnterpriseStatusGauge)
+		prometheus.MustRegister(runnersEnterpriseBusyGauge)
+	}
+	if config.Metrics.FetchWorkflowRunUsage {
+		prometheus.MustRegister(workflowBillGauge)
+	}
 
 	buildInfoGauge.WithLabelValues(version, runtime.Version()).Set(1)
 
@@ -145,16 +162,32 @@ func InitMetrics(ctx context.Context, version string) {
 
 	<-workflowsReady
 
-	go getBillableFromGithub(ctx)
-	go getRunnersFromGithub(ctx)
-	go getRunnersOrganizationFromGithub(ctx)
-	go getWorkflowRunsFromGithub(ctx)
-	go getRunnersEnterpriseFromGithub(ctx)
+	if config.Metrics.FetchWorkflowRunUsage {
+		go getBillableFromGithub(ctx)
+	}
+	if config.Metrics.RunnersRepo {
+		go getRunnersFromGithub(ctx)
+	}
+	if config.Metrics.RunnersOrg {
+		go getRunnersOrganizationFromGithub(ctx)
+	}
+	if config.Metrics.RunnersEnterprise {
+		go getRunnersEnterpriseFromGithub(ctx)
+	}
+	if config.Metrics.WorkflowRunStatus || config.Metrics.WorkflowRunSummary {
+		go getWorkflowRunsFromGithub(ctx)
+	}
 
-	if config.Metrics.FetchJobMetrics {
-		prometheus.MustRegister(jobStatusGauge)
-		prometheus.MustRegister(jobDurationHistogram)
-		prometheus.MustRegister(jobQueueDurationHistogram)
+	if config.Metrics.FetchJobMetrics && (config.Metrics.JobStatus || config.Metrics.JobSummary) {
+		if config.Metrics.JobStatus {
+			prometheus.MustRegister(jobStatusGauge)
+			prometheus.MustRegister(jobQueueWaitGauge)
+		}
+		if config.Metrics.JobSummary {
+			prometheus.MustRegister(jobDurationHistogram)
+			prometheus.MustRegister(jobQueueDurationHistogram)
+			prometheus.MustRegister(jobConclusionsTotal)
+		}
 		go getJobsFromGithub(ctx)
 	}
 }

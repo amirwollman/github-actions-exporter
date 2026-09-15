@@ -119,9 +119,8 @@ func getRecentWorkflowRuns(ctx context.Context, owner string, repo string) ([]*g
 	var runs []*github.WorkflowRun
 	for {
 		resp, rr, err := client.Actions.ListRepositoryWorkflowRuns(ctx, owner, repo, opt)
-		if rl_err, ok := err.(*github.RateLimitError); ok {
-			log.Printf("ListRepositoryWorkflowRuns ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+		if retry, isRL := pauseForRateLimit(ctx, err, "workflow_runs", "ListRepositoryWorkflowRuns"); isRL {
+			if !retry {
 				return nil, false
 			}
 			continue
@@ -145,9 +144,8 @@ func getRecentWorkflowRuns(ctx context.Context, owner string, repo string) ([]*g
 func getRunUsage(ctx context.Context, owner string, repo string, runId int64) *github.WorkflowRunUsage {
 	for {
 		resp, rr, err := client.Actions.GetWorkflowRunUsageByID(ctx, owner, repo, runId)
-		if rl_err, ok := err.(*github.RateLimitError); ok {
-			log.Printf("GetWorkflowRunUsageByID ratelimited. Pausing until %s", rl_err.Rate.Reset.Time.String())
-			if !sleepWithContext(ctx, time.Until(rl_err.Rate.Reset.Time)) {
+		if retry, isRL := pauseForRateLimit(ctx, err, "workflow_runs", "GetWorkflowRunUsageByID"); isRL {
+			if !retry {
 				return nil
 			}
 			continue
