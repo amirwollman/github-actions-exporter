@@ -37,10 +37,15 @@ spec:
           env:
           {{- range $name, $value := .Values.env }}
           {{- /* Only nil and "" are skipped. `empty` would also drop false and 0,
-                 which silently turns every "off" toggle back on. */}}
-          {{- if not (or (kindIs "invalid" $value) (and (kindIs "string" $value) (eq $value ""))) }}
+                 which silently turns every "off" toggle back on. The checks are
+                 nested because template `and` evaluates every argument, so a
+                 type guard in the same expression does not stop `eq` from
+                 being handed a non-string and erroring. */}}
+          {{- if not (kindIs "invalid" $value) }}
+          {{- if ne (toString $value) "" }}
           - name: {{ $name | quote }}
             value: {{ $value | quote }}
+          {{- end }}
           {{- end }}
           {{- end }}
           {{- range $name, $value := include "github-actions-exporter.metricsEnv" $ | fromYaml }}
