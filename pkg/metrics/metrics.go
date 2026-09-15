@@ -55,7 +55,7 @@ func InitMetrics(ctx context.Context, version string) {
 		prometheus.HistogramOpts{
 			Name:    "github_workflow_run_duration_seconds",
 			Help:    "Duration of completed workflow runs in seconds",
-			Buckets: []float64{10, 30, 60, 120, 300, 600, 1200, 1800, 3600},
+			Buckets: []float64{10, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200},
 		},
 		[]string{"repo", "workflow", "event"},
 	)
@@ -64,7 +64,7 @@ func InitMetrics(ctx context.Context, version string) {
 		prometheus.HistogramOpts{
 			Name:    "github_workflow_run_queue_duration_seconds",
 			Help:    "Time from workflow run creation to first execution start",
-			Buckets: []float64{5, 10, 30, 60, 120, 300, 600},
+			Buckets: []float64{5, 10, 30, 60, 120, 300, 900, 1800, 3600, 10800},
 		},
 		[]string{"repo", "workflow", "event"},
 	)
@@ -194,6 +194,14 @@ func InitMetrics(ctx context.Context, version string) {
 
 func updateRateLimit(resp *github.Response) {
 	if resp == nil {
+		return
+	}
+	// A response served from the local HTTP cache carries the rate-limit
+	// headers captured when it was first fetched, not the current ones.
+	// Publishing those makes the gauge alternate between the true remaining
+	// count and a stale higher one every few samples, so anything reading or
+	// alerting on it flaps instead of tracking the real budget.
+	if resp.Header.Get(httpcache.XFromCache) != "" {
 		return
 	}
 	apiRateLimitRemaining.WithLabelValues("core").Set(float64(resp.Rate.Remaining))
