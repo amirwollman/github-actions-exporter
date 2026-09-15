@@ -3,7 +3,7 @@
 image:
   repository: ghcr.io/amirwollman/github-actions-exporter
   pullPolicy: IfNotPresent
-  tag: "1.1.0"
+  tag: "1.2.0"
 
 nameOverride: ""
 fullnameOverride: ""
