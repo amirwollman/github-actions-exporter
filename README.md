@@ -220,6 +220,15 @@ Completed jobs by `conclusion`, with `repo`, `workflow`, `job_name` and
 flake rates: a job that starts and finishes between two scrapes never appears in
 the gauge, but is always counted here.
 
+### A note on histogram buckets
+
+The queue histograms run to 3h and the duration histograms to 2h. Self-hosted
+pools can back up a long way behind a busy or offline runner - a real observed
+wait was over four hours - and a histogram whose top bucket is 300s reports
+`p95 = 300` for every one of those, which reads like a healthy ceiling rather
+than a saturated one. If your own ceilings are far lower, trimming buckets is a
+cheap way to cut series.
+
 ### github_exporter_rate_limit_pauses_total
 Counter type
 

@@ -37,7 +37,7 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "github_job_duration_seconds",
 			Help:    "Duration of completed jobs in seconds",
-			Buckets: []float64{5, 10, 30, 60, 120, 300, 600, 1200},
+			Buckets: []float64{5, 10, 30, 60, 120, 300, 600, 1200, 1800, 3600, 7200},
 		},
 		[]string{"repo", "workflow", "job_name", "runner_labels", "event"},
 	)
@@ -46,7 +46,7 @@ var (
 		prometheus.HistogramOpts{
 			Name:    "github_job_queue_duration_seconds",
 			Help:    "Time a job waited for a runner before starting",
-			Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
+			Buckets: []float64{1, 5, 10, 30, 60, 120, 300, 900, 1800, 3600, 10800},
 		},
 		[]string{"repo", "workflow", "job_name", "runner_labels", "event"},
 	)

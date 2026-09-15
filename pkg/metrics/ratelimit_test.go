@@ -2,11 +2,14 @@ package metrics
 
 import (
 	"context"
+	"net/http"
 	"testing"
 	"time"
 
 	"github.com/google/go-github/v45/github"
+	"github.com/gregjones/httpcache"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 )
 
 func newPauseCounter() {
@@ -72,5 +75,32 @@ func TestNonRateLimitErrorIsNotHandled(t *testing.T) {
 	newPauseCounter()
 	if retry, isRL := pauseForRateLimit(context.Background(), context.Canceled, "test", "Call"); isRL || retry {
 		t.Errorf("a plain error must fall through, got isRL=%v retry=%v", isRL, retry)
+	}
+}
+
+// Responses served from the local HTTP cache carry the rate-limit headers
+// stored when they were first fetched. Publishing those made the gauge
+// alternate between the real remaining count and a stale higher one.
+func TestCachedResponseDoesNotOverwriteRateLimit(t *testing.T) {
+	apiRateLimitRemaining = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "github_exporter_api_rate_limit_remaining", Help: "h"}, []string{"resource"})
+	apiRateLimitLimit = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{Name: "github_exporter_api_rate_limit_limit", Help: "h"}, []string{"resource"})
+
+	live := &github.Response{Response: &http.Response{Header: http.Header{}}}
+	live.Rate = github.Rate{Remaining: 2100, Limit: 5000}
+	updateRateLimit(live)
+
+	if got := testutil.ToFloat64(apiRateLimitRemaining.WithLabelValues("core")); got != 2100 {
+		t.Fatalf("live response should set the gauge, got %v", got)
+	}
+
+	cached := &github.Response{Response: &http.Response{Header: http.Header{}}}
+	cached.Header.Set(httpcache.XFromCache, "1")
+	cached.Rate = github.Rate{Remaining: 4980, Limit: 5000}
+	updateRateLimit(cached)
+
+	if got := testutil.ToFloat64(apiRateLimitRemaining.WithLabelValues("core")); got != 2100 {
+		t.Errorf("cached response overwrote the gauge with a stale value: %v", got)
 	}
 }
