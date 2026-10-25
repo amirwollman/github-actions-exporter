@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/go-github/v45/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
@@ -95,8 +94,7 @@ func TestJobsCacheRefetchesOnlyUnfinishedRuns(t *testing.T) {
 
 	oldClient := client
 	defer func() { client = oldClient }()
-	client = github.NewClient(nil)
-	client.BaseURL, _ = url.Parse(srv.URL + "/")
+	client = newTestClient(t, srv.URL)
 
 	setFixtureRepos()
 	config.Github.Refresh = 0
@@ -183,8 +181,7 @@ func TestJobsExportInProgressWithRunner(t *testing.T) {
 
 	oldClient := client
 	defer func() { client = oldClient }()
-	client = github.NewClient(nil)
-	client.BaseURL, _ = url.Parse(srv.URL + "/")
+	client = newTestClient(t, srv.URL)
 
 	setFixtureRepos()
 	config.Github.Refresh = 0
@@ -257,8 +254,7 @@ func TestQueuedJobExposesItsWait(t *testing.T) {
 
 	oldClient := client
 	defer func() { client = oldClient }()
-	client = github.NewClient(nil)
-	client.BaseURL, _ = url.Parse(srv.URL + "/")
+	client = newTestClient(t, srv.URL)
 
 	setFixtureRepos()
 	config.Github.Refresh = 0
@@ -272,4 +268,15 @@ func TestQueuedJobExposesItsWait(t *testing.T) {
 	if wait <= 0 {
 		t.Errorf("queued job should report a positive wait, got %v", wait)
 	}
+}
+
+// newTestClient returns a GitHub client that sends every request to baseURL.
+func newTestClient(t *testing.T, baseURL string) *github.Client {
+	t.Helper()
+	base := baseURL + "/"
+	c, err := github.NewClient(github.WithURLs(&base, &base))
+	if err != nil {
+		t.Fatalf("creating test client: %v", err)
+	}
+	return c
 }

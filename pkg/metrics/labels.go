@@ -4,7 +4,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/google/go-github/v45/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 )
 

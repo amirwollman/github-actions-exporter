@@ -9,6 +9,7 @@ import (
 
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 
+	"github.com/google/go-github/v88/github"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -46,9 +47,9 @@ func getBillableFromGithub(ctx context.Context) {
 						break
 					}
 					updateRateLimit(rr)
-					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "MACOS").Set(float64(resp.GetBillable().MacOS.GetTotalMS()) / 1000)
-					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "WINDOWS").Set(float64(resp.GetBillable().Windows.GetTotalMS()) / 1000)
-					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "UBUNTU").Set(float64(resp.GetBillable().Ubuntu.GetTotalMS()) / 1000)
+					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "MACOS").Set(float64(billableMS(resp, "MACOS")) / 1000)
+					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "WINDOWS").Set(float64(billableMS(resp, "WINDOWS")) / 1000)
+					workflowBillGauge.WithLabelValues(repo, strconv.FormatInt(*v.ID, 10), *v.NodeID, *v.Name, *v.State, "UBUNTU").Set(float64(billableMS(resp, "UBUNTU")) / 1000)
 					break
 				}
 
@@ -61,4 +62,14 @@ func getBillableFromGithub(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// billableMS returns the billable milliseconds GitHub reports for one runner
+// OS, or 0 when the usage response carries none for it.
+func billableMS(usage *github.WorkflowUsage, os string) int64 {
+	bills := usage.GetBillable()
+	if bills == nil {
+		return 0
+	}
+	return (*bills)[os].GetTotalMS()
 }

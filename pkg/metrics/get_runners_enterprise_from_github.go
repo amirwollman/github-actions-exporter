@@ -8,7 +8,7 @@ import (
 
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 
-	"github.com/google/go-github/v45/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -34,7 +34,7 @@ var (
 // publishRunners.
 func getAllEnterpriseRunners(ctx context.Context) ([]*github.Runner, bool) {
 	var runners []*github.Runner
-	opt := &github.ListOptions{PerPage: 200}
+	opt := &github.ListRunnersOptions{ListOptions: github.ListOptions{PerPage: 200}}
 
 	for {
 		resp, rr, err := client.Enterprise.ListRunners(ctx, config.EnterpriseName, opt)
