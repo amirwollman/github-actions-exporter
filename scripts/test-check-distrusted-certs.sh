@@ -6,6 +6,19 @@ set -u
 dir="$(dirname "$0")"
 check="$dir/check-distrusted-certs.sh"
 
+# A bundle the check cannot read must fail it, not pass as "none distrusted".
+tmp="$(mktemp -d)"
+trap 'rm -rf "$tmp"' EXIT
+: >"$tmp/empty.pem"
+printf -- '-----BEGIN CERTIFICATE-----\nZm9v\n-----END CERTIFICATE-----\n' >"$tmp/junk.pem"
+cat "$dir/testdata/isrg-root-x1.pem" >>"$tmp/junk.pem"
+for bad in empty junk; do
+	if sh "$check" "$tmp/$bad.pem" >/dev/null 2>&1; then
+		echo "FAIL: check passed the $bad bundle" >&2
+		exit 1
+	fi
+done
+
 if ! sh "$check" "$dir/testdata/isrg-root-x1.pem"; then
 	echo "FAIL: check rejected ISRG Root X1" >&2
 	exit 1
@@ -24,4 +37,4 @@ if [ "$rc" -ne 1 ] || [ "$hits" -ne 22 ] || [ "$keys" -ne 14 ]; then
 	echo "FAIL: expected exit 1 with 22 matches over 14 keys, got exit $rc, $hits matches, $keys keys" >&2
 	exit 1
 fi
-echo "PASS: clean root accepted; 22 certificates over 14 keys rejected"
+echo "PASS: empty and unparseable bundles rejected; clean root accepted; 22 certificates over 14 keys rejected"

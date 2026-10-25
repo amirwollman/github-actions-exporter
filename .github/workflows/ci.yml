@@ -65,11 +65,15 @@ jobs:
           build-args: VERSION=${{ github.sha }}
 
       # The check gates the image under busybox, so test it there too, in the
-      # same digest-pinned Alpine the release stage uses.
+      # release stage's own base image, read from the Dockerfile so the two
+      # can't drift apart when Dependabot bumps it.
       - name: Certificate check under Alpine busybox
         run: |
-          docker run --rm -v "$PWD/scripts:/scripts:ro" \
-            alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a \
+          set -euo pipefail
+          base="$(sed -n 's/^FROM \([^ ]*\) AS release$/\1/p' Dockerfile)"
+          test -n "$base"
+          echo "release base: $base"
+          docker run --rm -v "$PWD/scripts:/scripts:ro" "$base" \
             sh -c 'apk add --no-cache openssl >/dev/null && sh /scripts/test-check-distrusted-certs.sh'
 
       - name: Smoke test

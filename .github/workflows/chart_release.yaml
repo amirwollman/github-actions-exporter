@@ -30,6 +30,10 @@ jobs:
         with:
           fetch-depth: 0
 
+      # This job holds a write token and runs JavaScript actions.
+      - name: Runner's bundled Node has the Brotli fix
+        run: sh scripts/check-runner-node.sh
+
       - name: Resolve versions
         id: v
         shell: bash
