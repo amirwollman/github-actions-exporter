@@ -222,7 +222,7 @@ func NewClient() (*github.Client, error) {
 	if len(config.Github.Token) > 0 {
 		log.Printf("authenticating with Github Token")
 		ctx := context.Background()
-		ctx = context.WithValue(ctx, oauth2.HTTPClient, cachedTransport.Client())
+		ctx = context.WithValue(ctx, "HTTPClient", cachedTransport.Client())
 		httpClient = oauth2.NewClient(ctx, oauth2.StaticTokenSource(&oauth2.Token{AccessToken: config.Github.Token}))
 	} else {
 		log.Printf("authenticating with Github App")
