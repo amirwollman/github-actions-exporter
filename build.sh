@@ -2,9 +2,8 @@
 
 set -x
 
-# Release builds run on a detached HEAD at the tag, where `git branch` would
-# report "(HEAD", so prefer the exact image tag (not a chart-v* tag on the same
-# commit) and fall back to the short commit hash.
-VERSION=`git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null || git rev-parse --short HEAD`
+# The workflow passes the version in (the Dockerfile's VERSION build arg), so
+# the image reports the tag that triggered the build and git isn't needed.
+VERSION="${VERSION:-development}"
 
-CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-X 'main.version=$VERSION'"  -o bin/app
+CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'main.version=$VERSION'" -o bin/app

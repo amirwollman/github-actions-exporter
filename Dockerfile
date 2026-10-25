@@ -3,9 +3,10 @@
 # system store still carries.
 FROM golang:1.27.3@sha256:f20d83a83e18dbd2a4714b8ffd4b30b287b6243962dd75608e86abcc63ba4efc AS builder
 
+ARG VERSION=development
 WORKDIR /app
 COPY . .
-RUN bash ./build.sh
+RUN VERSION="$VERSION" bash ./build.sh
 
 FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS release
 
