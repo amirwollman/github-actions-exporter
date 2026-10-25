@@ -71,11 +71,16 @@ jobs:
           VERSION: ${{ steps.version.outputs.full }}
         run: CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'main.version=${VERSION}'" -o "bin/${APP_NAME}" .
 
+      # Registries refuse uppercase names; github.repository may have them.
+      - name: Image name
+        id: image
+        run: echo "name=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ steps.image.outputs.name }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -95,8 +100,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Build and check the image locally first, then push. The push reuses
-      # this build's layers from the same builder (verified after the push),
-      # so what ships is what was checked here, not CI's separate build.
+      # this build's layers from the same builder (verified before any tag
+      # moves), so what ships is what was checked here, not CI's build.
       - name: Build image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
@@ -118,34 +123,49 @@ jobs:
           docker rm "$id"
           go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "$RUNNER_TEMP/app"
 
-      - name: Push Docker image
+      # Push by digest only, no tags: nothing public moves until the pushed
+      # image is proven to be the checked one.
+      - name: Push Docker image by digest
         id: push
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
           file: ./Dockerfile
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ steps.version.outputs.full }}
+          outputs: type=image,name=${{ steps.image.outputs.name }},push-by-digest=true,name-canonical=true,push=true
 
-      # The push should be a cache hit on the checked build. Prove it: a
-      # silent rebuild would ship layers nothing above looked at, so stop
-      # before the GitHub Release.
+      # The push should be a cache hit on the checked build. A silent rebuild
+      # would ship layers nothing above looked at, so compare before tagging.
       - name: Pushed image is the checked image
         env:
           DIGEST: ${{ steps.push.outputs.digest }}
+          image: ${{ steps.image.outputs.name }}
         run: |
           set -euo pipefail
-          docker pull "${IMAGE}@${DIGEST}"
-          pushed="$(docker image inspect "${IMAGE}@${DIGEST}" --format '{{json .RootFS.Layers}}')"
+          docker pull "${image}@${DIGEST}"
+          pushed="$(docker image inspect "${image}@${DIGEST}" --format '{{json .RootFS.Layers}}')"
           checked="$(docker image inspect release-candidate --format '{{json .RootFS.Layers}}')"
           if [ "$pushed" != "$checked" ]; then
-            echo "::error::pushed image ${DIGEST} has different layers from the checked build"
+            echo "::error::pushed image ${DIGEST} has different layers from the checked build; no tags were moved"
             echo "pushed:  $pushed"
             echo "checked: $checked"
             exit 1
           fi
+
+      - name: Tag the verified image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+          image: ${{ steps.image.outputs.name }}
+        run: |
+          set -euo pipefail
+          args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && args+=(-t "$tag")
+          done <<<"$TAGS"
+          [ "${#args[@]}" -gt 0 ]
+          docker buildx imagetools create "${args[@]}" "${image}@${DIGEST}"
 
       # Publish the release only once its image is pushed, so a failed image
       # build never leaves a public release without a matching image.
