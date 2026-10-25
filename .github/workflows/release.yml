@@ -47,6 +47,14 @@ jobs:
         with:
           prefix: "v"
 
+      # The action only reports validity. Stop here, before anything is pushed
+      # as latest or released without a real version.
+      - name: Require a semver tag
+        if: steps.version.outputs.is_valid != 'true'
+        run: |
+          echo "::error::tag '${{ github.ref_name }}' is not a valid v<semver> version"
+          exit 1
+
       - name: Build app
         run: CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'main.version=${{ steps.version.outputs.full }}'" -o bin/${{ env.APP_NAME }} .
 
