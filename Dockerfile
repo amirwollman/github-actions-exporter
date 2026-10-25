@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1
 # Go 1.27.3 is the first 1.27 release whose crypto/x509 refuses the
 # compromised eMudhra intermediates (CVE-2026-111943), whatever roots the
 # system store still carries.
