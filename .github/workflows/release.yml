@@ -67,7 +67,9 @@ jobs:
           exit 1
 
       - name: Build app
-        run: CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'main.version=${{ steps.version.outputs.full }}'" -o bin/${{ env.APP_NAME }} .
+        env:
+          VERSION: ${{ steps.version.outputs.full }}
+        run: CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'main.version=${VERSION}'" -o "bin/${APP_NAME}" .
 
       - name: Docker meta
         id: meta
@@ -92,7 +94,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      # Build and check the image locally first, then push. The push reuses
+      # this build's layers from the same builder, so what ships is what was
+      # checked here, not CI's separate build.
+      - name: Build image
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: release-candidate
+          build-args: VERSION=${{ steps.version.outputs.full }}
+
+      - name: Check the image
+        env:
+          VERSION: ${{ steps.version.outputs.full }}
+        run: |
+          set -euo pipefail
+          docker run --rm --entrypoint id release-candidate -u | grep -qx 65534
+          docker run --rm release-candidate ./app --version | grep -F -- "$VERSION"
+          id="$(docker create release-candidate)"
+          docker cp "$id:/app" "$RUNNER_TEMP/app"
+          docker rm "$id"
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "$RUNNER_TEMP/app"
+
+      - name: Push Docker image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
@@ -105,7 +131,7 @@ jobs:
       # Publish the release only once its image is pushed, so a failed image
       # build never leaves a public release without a matching image.
       - name: Generate MD5
-        run: md5sum bin/${{ env.APP_NAME }} > bin/${{ env.APP_NAME }}.md5
+        run: md5sum "bin/${APP_NAME}" > "bin/${APP_NAME}.md5"
 
       - name: Push to release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v0.1.15

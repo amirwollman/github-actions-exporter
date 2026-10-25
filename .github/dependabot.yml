@@ -17,6 +17,10 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Indirect modules too (go-brrr, x/sys, protobuf...): by default Dependabot
+    # only proposes version updates for direct requirements.
+    allow:
+      - dependency-type: all
     # Let new releases age a week before they are proposed. Security updates
     # are not subject to the cooldown.
     cooldown:
