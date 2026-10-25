@@ -1,0 +1,16 @@
+# The Dockerfile pins its base images by digest, so security fixes in Go or
+# Alpine only reach the image when these bumps are merged.
+version: 2
+updates:
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

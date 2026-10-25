@@ -1,21 +1,23 @@
 #!/bin/sh
 # Fails if the CA bundle given as $1 still trusts a root that chains to the
 # eMudhra intermediates whose private keys were compromised in October 2026.
-# Matching is by SHA-256 fingerprint: Alpine's bundle is bare PEM with no
-# certificate names, so grepping it for "emSign" always passes.
+#
+# Roots are matched on the SHA-256 of their public key (SPKI), so a reissued or
+# cross-signed copy of the same key is caught too. Alpine's bundle is bare PEM
+# with no certificate names, so grepping it for "emSign" would always pass.
 set -eu
 
 bundle="${1:?usage: $0 <ca-bundle.pem>}"
 
-# Roots Mozilla removed in NSS 3.131.1, plus the G3 TLS/code-signing roots and
-# Sectigo's AAA Certificate Services, which cross-signs into the same chains.
+# The emSign roots dropped from the Mozilla store (curl CA bundle 2026-10-20),
+# and Sectigo's AAA Certificate Services, which cross-signed into the same
+# chains. AAA had already left the Mozilla store, but other bundles still carry
+# it. Hashes were taken from the curl bundles of 2024-09-24 and 2026-09-25.
 distrusted='
-86A1ECBA089C4A8D3BBE2734C612BA341D813E043CF9E8A862CD5C57A36BBE6B emSign ECC Root CA - G3
-125609AA301DA0A249B97A8239CB6A34216F44DCAC9F3954B14292F2E8C8608F emSign Root CA - C1
-BC4D809B15189D78DB3E1D8CF4F9726A795DA1643CA5F1358E1DDB0EDC0D7EB3 emSign ECC Root CA - C3
-7DD78D5F4F13459A83DFF9ABBBA62EDBAF6F2D102BF257FD712F4D9F2746ED8D emSign Root TLS CA - G3
-F2EDAAFF3D9B701FB4D14C9F285F8C0BAD90FC3BCC1FA07D47F4718EDABA34A5 emSign Root CS CA - G3
-D7A7A0FB5D7E2731D771E9484EBCDEF71D5F0C3E0A2948782BC83EE0EA699EF4 AAA Certificate Services
+8D417DB2DD8BF5E3084D1E3F196D583849D81BDD4C00C70B9D39369E96B8C782 emSign ECC Root CA - G3
+B7408B4D2BE0238BA37004DD34E276C6019BD2F24C9DB7D4980F5F6C359A4BCC emSign Root CA - C1
+EABC185C4E82D942B1A5978BA3C0181487D6B3B9974E5C49F72F6D0BD9637150 emSign ECC Root CA - C3
+BD153ED7B0434F6886B17BCE8BBE84ED340C7132D702A8F4FA318F756ECBD6F3 AAA Certificate Services
 '
 
 tmp="$(mktemp -d)"
@@ -32,8 +34,25 @@ found=0
 for cert in "$tmp"/*.pem; do
 	[ -e "$cert" ] || continue
 	total=$((total + 1))
-	fp="$(openssl x509 -in "$cert" -noout -fingerprint -sha256 | sed 's/.*=//; s/://g')"
-	match="$(printf '%s\n' "$distrusted" | grep "^$fp " || true)"
+	# Each step runs on its own so a certificate openssl cannot parse fails
+	# the check instead of producing an empty hash that matches nothing.
+	if ! openssl x509 -in "$cert" -noout -pubkey >"$cert.pub" ||
+		! openssl pkey -pubin -in "$cert.pub" -outform DER >"$cert.der"; then
+		echo "cannot parse certificate #$total in $bundle" >&2
+		exit 1
+	fi
+	spki="$(sha256sum "$cert.der" | cut -d' ' -f1 | tr 'a-f' 'A-F')"
+	case "$spki" in
+	*[!0-9A-F]* | '')
+		echo "bad SPKI hash for certificate #$total in $bundle" >&2
+		exit 1
+		;;
+	esac
+	[ "${#spki}" -eq 64 ] || {
+		echo "bad SPKI hash for certificate #$total in $bundle" >&2
+		exit 1
+	}
+	match="$(printf '%s\n' "$distrusted" | grep "^$spki " || true)"
 	if [ -n "$match" ]; then
 		echo "distrusted root still present: ${match#* }" >&2
 		found=1
