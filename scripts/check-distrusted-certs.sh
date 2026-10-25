@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fails if the CA bundle given as $1 still trusts a certificate in the chains of
+# Fails if any CA file given as an argument still trusts a certificate in the chains of
 # the eMudhra intermediates whose private keys were compromised in October 2026.
 #
 # Certificates are matched on the SHA-256 of their public key (SPKI), so a
@@ -8,17 +8,21 @@
 # always pass.
 set -eu
 
-bundle="${1:?usage: $0 <ca-bundle.pem>}"
+[ "$#" -gt 0 ] || {
+	echo "usage: $0 <ca-file>..." >&2
+	exit 2
+}
+bundle="$*"
 
 # Hashes are recomputed from the certificates published at
 # https://emudhra.we-have-a-problem.com/ (roots.json, impacted-intermediates.json)
 # and the curl CA bundles of 2024-09-24 and 2026-09-25. The intermediates are
 # the same eight keys Go 1.27.3 refuses in crypto/x509.
 distrusted='
-C619E4780ED8E0ABEDA24AD732567DE4383A7EA941338F6D1A7D1B49AC792FE9 emSign Root TLS CA - G3 (issuer)
-0A6C2B2CA5B364207954171987AC9D2178561569D8205457E77CA90C32EDE282 emSign Root CS CA - G3 (issuer)
+C619E4780ED8E0ABEDA24AD732567DE4383A7EA941338F6D1A7D1B49AC792FE9 emSign Root TLS CA - G3 (direct issuer)
+0A6C2B2CA5B364207954171987AC9D2178561569D8205457E77CA90C32EDE282 emSign Root CS CA - G3 (direct issuer)
 8D417DB2DD8BF5E3084D1E3F196D583849D81BDD4C00C70B9D39369E96B8C782 emSign ECC Root CA - G3 (cross-signer)
-BD153ED7B0434F6886B17BCE8BBE84ED340C7132D702A8F4FA318F756ECBD6F3 AAA Certificate Services (cross-signer)
+BD153ED7B0434F6886B17BCE8BBE84ED340C7132D702A8F4FA318F756ECBD6F3 AAA Certificate Services (direct issuer, Sectigo cross-certificates)
 B7408B4D2BE0238BA37004DD34E276C6019BD2F24C9DB7D4980F5F6C359A4BCC emSign Root CA - C1 (dropped by Mozilla alongside, precaution)
 EABC185C4E82D942B1A5978BA3C0181487D6B3B9974E5C49F72F6D0BD9637150 emSign ECC Root CA - C3 (dropped by Mozilla alongside, precaution)
 EBED6475C2C2D80FCB199F3FE8DD6E6B3CE60B77EB15D4E42C3DEC0C6F5B5105 EM DV TLS CA - G3B
@@ -38,7 +42,7 @@ awk -v dir="$tmp" '
 	/-----BEGIN CERTIFICATE-----/ { n++; out = sprintf("%s/%05d.pem", dir, n) }
 	out != "" { print > out }
 	/-----END CERTIFICATE-----/ { close(out); out = "" }
-' "$bundle"
+' "$@"
 
 total=0
 found=0
