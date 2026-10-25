@@ -1,16 +1,26 @@
 # The Dockerfile pins its base images by digest, so security fixes in Go or
-# Alpine only reach the image when these bumps are merged.
+# Alpine only reach the image when these bumps are merged. Security updates
+# are not subject to the cooldown.
 version: 2
 updates:
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    # Let new releases age a week before they are proposed.
+    cooldown:
+      default-days: 7
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
+    # Let new releases age a week before they are proposed.
+    cooldown:
+      default-days: 7
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # Let new releases age a week before they are proposed.
+    cooldown:
+      default-days: 7

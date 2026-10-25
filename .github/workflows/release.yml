@@ -72,7 +72,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             type=sha
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ steps.version.outputs.prerelease == '' }}
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         with:
@@ -108,4 +108,4 @@ jobs:
           files: |
             bin/${{ env.APP_NAME }}
             bin/${{ env.APP_NAME }}.md5
-          prerelease: ${{ steps.version.outputs.prerelease }}
+          prerelease: ${{ steps.version.outputs.prerelease != '' }}

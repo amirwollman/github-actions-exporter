@@ -17,6 +17,20 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      # Node2Shell (CVE-2026-111497): JavaScript actions run on the runner's
+      # bundled Node 24, fixed in 24.22.1 (runner 2.338.1+). Exploiting it
+      # needs a malicious Brotli response from GitHub or Docker over TLS, so
+      # warn loudly rather than block a release until hosted runners roll.
+      - name: Runner's bundled Node has the Brotli fix
+        run: |
+          worker="$(pgrep -a -f 'bin/Runner.Worker' | awk '{print $2; exit}')"
+          node="$(dirname "$(dirname "$worker")")/externals/node24/bin/node"
+          v="$("$node" --version 2>/dev/null || echo unknown)"
+          echo "runner node24: $v"
+          if [ "$v" = unknown ] || [ "$(printf '%s\n' v24.22.1 "$v" | sort -V | head -1)" != v24.22.1 ]; then
+            echo "::warning::runner's bundled Node 24 is $v, before the Node2Shell fix (24.22.1)"
+          fi
+
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
@@ -35,24 +49,7 @@ jobs:
       - run: go test -race ./...
 
       - name: Certificate check accepts a clean root and flags every distrusted key
-        run: |
-          set -uo pipefail
-          sh scripts/check-distrusted-certs.sh scripts/testdata/isrg-root-x1.pem || {
-            echo "::error::check rejected ISRG Root X1"
-            exit 1
-          }
-          rc=0
-          out="$(sh scripts/check-distrusted-certs.sh scripts/testdata/distrusted.pem 2>&1)" || rc=$?
-          echo "$out"
-          # Exit 1 with a match for each of the 22 certificates (14 distinct
-          # keys), not any failure: a missing fixture or a broken openssl also
-          # exits non-zero, and a mistyped hash would drop its certificates.
-          hits="$(grep -c '^distrusted certificate still present: ' <<<"$out" || true)"
-          keys="$(grep '^distrusted certificate still present: ' <<<"$out" | sort -u | wc -l)"
-          if [ "$rc" -ne 1 ] || [ "$hits" -ne 22 ] || [ "$keys" -ne 14 ]; then
-            echo "::error::expected exit 1 with 22 matches over 14 keys, got exit $rc, $hits matches, $keys keys"
-            exit 1
-          fi
+        run: sh scripts/test-check-distrusted-certs.sh
 
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
@@ -77,6 +74,14 @@ jobs:
           load: true
           tags: github-actions-exporter:ci
           build-args: VERSION=${{ github.sha }}
+
+      # The check gates the image under busybox, so test it there too, in the
+      # same digest-pinned Alpine the release stage uses.
+      - name: Certificate check under Alpine busybox
+        run: |
+          docker run --rm -v "$PWD/scripts:/scripts:ro" \
+            alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a \
+            sh -c 'apk add --no-cache openssl >/dev/null && sh /scripts/test-check-distrusted-certs.sh'
 
       - name: Smoke test
         run: |

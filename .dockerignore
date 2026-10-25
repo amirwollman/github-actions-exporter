@@ -7,7 +7,6 @@ bin
 **/*.key
 **/*private_key*
 **/*private-key*
-**/.env
-**/.env.*
+**/.env*
 .idea
 .vscode
