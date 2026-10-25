@@ -1,26 +1,24 @@
 # The Dockerfile pins its base images by digest, so security fixes in Go or
-# Alpine only reach the image when these bumps are merged. Security updates
-# are not subject to the cooldown.
+# Alpine only reach the image when these bumps are merged. Dependabot has no
+# security advisories for Docker images, so base images are checked daily and
+# skip the cooldown: CI scans the shipped binary and fails once its Go is stale.
 version: 2
 updates:
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: weekly
-    # Let new releases age a week before they are proposed.
-    cooldown:
-      default-days: 7
+      interval: daily
   - package-ecosystem: gomod
     directory: /
     schedule:
       interval: weekly
-    # Let new releases age a week before they are proposed.
+    # Let new releases age a week before they are proposed. Security updates
+    # are not subject to the cooldown.
     cooldown:
       default-days: 7
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    # Let new releases age a week before they are proposed.
     cooldown:
       default-days: 7

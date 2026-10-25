@@ -34,6 +34,11 @@ jobs:
         with:
           persist-credentials: false
 
+      # This job holds the write tokens and may land on a different runner
+      # version than the CI jobs, so check its own VM.
+      - name: Runner's bundled Node has the Brotli fix
+        run: sh scripts/check-runner-node.sh
+
       # Newest 1.27 patch rather than go.mod's minimum, so the release binary
       # picks up stdlib security fixes without waiting for a go.mod bump.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
