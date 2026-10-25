@@ -28,11 +28,20 @@ jobs:
       - run: go vet ./...
       - run: go test -race ./...
 
-      - name: Certificate check rejects a distrusted root
+      - name: Certificate check accepts a clean root and rejects a distrusted one
         run: |
-          set -euo pipefail
-          if sh scripts/check-distrusted-certs.sh scripts/testdata/emsign-ecc-root-g3.pem; then
-            echo "::error::check passed a bundle holding emSign ECC Root CA - G3"
+          set -uo pipefail
+          sh scripts/check-distrusted-certs.sh scripts/testdata/isrg-root-x1.pem || {
+            echo "::error::check rejected ISRG Root X1"
+            exit 1
+          }
+          out="$(sh scripts/check-distrusted-certs.sh scripts/testdata/emsign-ecc-root-g3.pem 2>&1)"
+          rc=$?
+          echo "$out"
+          # Exit 1 with the match message, not any failure: a missing fixture
+          # or a broken openssl also exits non-zero.
+          if [ "$rc" -ne 1 ] || ! grep -q 'distrusted certificate still present: emSign ECC Root CA - G3' <<<"$out"; then
+            echo "::error::check did not reject emSign ECC Root CA - G3 (exit $rc)"
             exit 1
           fi
 
