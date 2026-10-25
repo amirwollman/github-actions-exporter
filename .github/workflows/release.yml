@@ -49,7 +49,7 @@ jobs:
           check-latest: true
           cache: false
 
-      - uses: nowsprinting/check-version-format-action@22aede0d4fcf61035e89d0682f36ca917a277505 # v3.2.10
+      - uses: nowsprinting/check-version-format-action@bb367e7a6d58988a1d3eeaf55168fb8013573a1c # v5.0.7
         id: version
         with:
           prefix: "v"
