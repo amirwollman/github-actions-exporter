@@ -95,8 +95,8 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Build and check the image locally first, then push. The push reuses
-      # this build's layers from the same builder, so what ships is what was
-      # checked here, not CI's separate build.
+      # this build's layers from the same builder (verified after the push),
+      # so what ships is what was checked here, not CI's separate build.
       - name: Build image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
@@ -119,6 +119,7 @@ jobs:
           go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "$RUNNER_TEMP/app"
 
       - name: Push Docker image
+        id: push
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
@@ -127,6 +128,24 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ steps.version.outputs.full }}
+
+      # The push should be a cache hit on the checked build. Prove it: a
+      # silent rebuild would ship layers nothing above looked at, so stop
+      # before the GitHub Release.
+      - name: Pushed image is the checked image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          docker pull "${IMAGE}@${DIGEST}"
+          pushed="$(docker image inspect "${IMAGE}@${DIGEST}" --format '{{json .RootFS.Layers}}')"
+          checked="$(docker image inspect release-candidate --format '{{json .RootFS.Layers}}')"
+          if [ "$pushed" != "$checked" ]; then
+            echo "::error::pushed image ${DIGEST} has different layers from the checked build"
+            echo "pushed:  $pushed"
+            echo "checked: $checked"
+            exit 1
+          fi
 
       # Publish the release only once its image is pushed, so a failed image
       # build never leaves a public release without a matching image.
