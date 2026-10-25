@@ -85,3 +85,19 @@ jobs:
           set -euo pipefail
           docker run --rm --entrypoint id github-actions-exporter:ci -u | grep -qx 65534
           docker run --rm github-actions-exporter:ci ./app --version
+
+      # The image's builder is digest-pinned and can lag the newest Go patch,
+      # so scan the binary that actually ships rather than trust the test job.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+          cache: false
+
+      - name: govulncheck the shipped binary
+        run: |
+          set -euo pipefail
+          id="$(docker create github-actions-exporter:ci)"
+          docker cp "$id:/app" "$RUNNER_TEMP/app"
+          docker rm "$id"
+          go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 -mode=binary "$RUNNER_TEMP/app"
