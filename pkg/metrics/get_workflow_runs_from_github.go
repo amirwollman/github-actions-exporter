@@ -9,7 +9,7 @@ import (
 
 	"github.com/spendesk/github-actions-exporter/pkg/config"
 
-	"github.com/google/go-github/v45/github"
+	"github.com/google/go-github/v88/github"
 )
 
 // observedRuns tracks completed run IDs that have already been counted by

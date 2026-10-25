@@ -1,0 +1,12 @@
+.git
+.claude
+.mcp.json
+.DS_Store
+bin
+**/*.pem
+**/*.key
+**/*private_key*
+**/*private-key*
+**/.env*
+.idea
+.vscode

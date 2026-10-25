@@ -2,10 +2,8 @@
 
 set -x
 
-VERSION=`git branch | grep '*' | awk '{print $2}'`
-if [[ $VERSION == "master" ]];
-then
-  VERSION=`git describe --tags --abbrev=0`
-fi
+# The workflow passes the version in (the Dockerfile's VERSION build arg), so
+# the image reports the tag that triggered the build and git isn't needed.
+VERSION="${VERSION:-development}"
 
-CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-X 'main.version=$VERSION'"  -o bin/app
+CGO_ENABLED=0 GOOS=linux go build -a -ldflags="-X 'main.version=$VERSION'" -o bin/app

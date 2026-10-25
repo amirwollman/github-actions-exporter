@@ -26,9 +26,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
+
+      # This job holds a write token and runs JavaScript actions.
+      - name: Runner's bundled Node has the Brotli fix
+        run: sh scripts/check-runner-node.sh
 
       - name: Resolve versions
         id: v
@@ -54,8 +58,21 @@ jobs:
           echo "app_version=$APP_VERSION"  >> "$GITHUB_OUTPUT"
           echo "pages_url=https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/" >> "$GITHUB_OUTPUT"
 
+      # Pinned by version and checksum (get.helm.sh's published sha256), so a
+      # swapped download can't run in a job holding a write token.
       - name: Install Helm
-        uses: azure/setup-helm@v3
+        shell: bash
+        env:
+          HELM_VERSION: v3.22.1
+          HELM_SHA256: 896cf63684a42a723d61c980369d6e588330927deb13676ca0d85006dd6da0ea
+        run: |
+          set -euo pipefail
+          tgz="helm-${HELM_VERSION}-linux-amd64.tar.gz"
+          curl -fsSLo "$RUNNER_TEMP/$tgz" "https://get.helm.sh/$tgz"
+          echo "${HELM_SHA256}  $RUNNER_TEMP/$tgz" | sha256sum -c -
+          tar -xzf "$RUNNER_TEMP/$tgz" -C "$RUNNER_TEMP" linux-amd64/helm
+          install -m 0755 "$RUNNER_TEMP/linux-amd64/helm" /usr/local/bin/helm
+          helm version
 
       - name: Check out gh-pages
         shell: bash

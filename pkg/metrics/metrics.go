@@ -13,7 +13,7 @@ import (
 
 	"github.com/bradleyfalzon/ghinstallation/v2"
 	"github.com/die-net/lrucache"
-	"github.com/google/go-github/v45/github"
+	"github.com/google/go-github/v88/github"
 	"github.com/gregjones/httpcache"
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/oauth2"
@@ -242,12 +242,16 @@ func NewClient() (*github.Client, error) {
 
 	if config.Github.APIURL != "api.github.com" {
 		var err error
-		client, err = github.NewEnterpriseClient(config.Github.APIURL, config.Github.APIURL, httpClient)
+		client, err = github.NewClient(github.WithHTTPClient(httpClient), github.WithEnterpriseURLs(config.Github.APIURL, config.Github.APIURL))
 		if err != nil {
 			return nil, fmt.Errorf("enterprise client creation failed: %v", err)
 		}
 	} else {
-		client = github.NewClient(httpClient)
+		var err error
+		client, err = github.NewClient(github.WithHTTPClient(httpClient))
+		if err != nil {
+			return nil, fmt.Errorf("client creation failed: %v", err)
+		}
 	}
 
 	return client, nil
