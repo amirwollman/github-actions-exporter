@@ -1,13 +1,17 @@
 # The Dockerfile pins its base images by digest, so security fixes in Go or
 # Alpine only reach the image when these bumps are merged. Dependabot has no
-# security advisories for Docker images, so base images are checked daily and
-# skip the cooldown: CI scans the shipped binary and fails once its Go is stale.
+# security advisories for Docker images, so base images are checked daily with
+# the cooldown set to zero (overriding Dependabot's default). CI scans the
+# shipped binary and fails once its Go is stale: for an urgent Go security
+# release, bump the golang digest by hand rather than wait.
 version: 2
 updates:
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: daily
+    cooldown:
+      default-days: 0
   - package-ecosystem: gomod
     directory: /
     schedule:
