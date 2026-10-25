@@ -51,8 +51,12 @@ jobs:
       # as latest or released without a real version.
       - name: Require a semver tag
         if: steps.version.outputs.is_valid != 'true'
+        # Through env, not ${{ }} in the script: a tag that fails this check
+        # can contain shell syntax.
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
-          echo "::error::tag '${{ github.ref_name }}' is not a valid v<semver> version"
+          echo "::error::tag '${TAG}' is not a valid v<semver> version"
           exit 1
 
       - name: Build app
