@@ -7,16 +7,18 @@ WORKDIR /app
 COPY . .
 RUN bash ./build.sh
 
+FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS release
+
 # ca-certificates 20261020 drops the eMudhra roots whose intermediates leaked
 # their keys. The image ships whatever bundle exists at build time, so fail the
-# build rather than ship one that still trusts them.
-FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS certs
-RUN apk add --no-cache --upgrade 'ca-certificates>=20261020' openssl
-COPY scripts/check-distrusted-roots.sh /usr/local/bin/
-RUN sh /usr/local/bin/check-distrusted-roots.sh /etc/ssl/certs/ca-certificates.crt
+# build rather than ship one that still trusts them. openssl is only needed for
+# the check and leaves with the same layer.
+RUN --mount=type=bind,source=scripts/check-distrusted-certs.sh,target=/tmp/check-distrusted-certs.sh \
+	apk add --no-cache --upgrade 'ca-certificates-bundle>=20261020' \
+	&& apk add --no-cache --virtual .cert-check openssl \
+	&& sh /tmp/check-distrusted-certs.sh /etc/ssl/certs/ca-certificates.crt \
+	&& apk del --no-cache .cert-check
 
-FROM alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS release
-COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=builder /app/bin/app .
 USER 65534:65534
 CMD ["./app"]

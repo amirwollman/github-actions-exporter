@@ -28,9 +28,12 @@ jobs:
         with:
           fetch-depth: 0
 
+      # Newest 1.27 patch rather than go.mod's minimum, so the release binary
+      # picks up stdlib security fixes without waiting for a go.mod bump.
       - uses: actions/setup-go@v3
         with:
-          go-version-file: go.mod
+          go-version: "1.27.x"
+          check-latest: true
           cache: true
           cache-dependency-path: go.sum
 

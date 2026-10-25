@@ -27,8 +27,8 @@ github.com/klauspost/compress v1.20.3 h1:zWNoFqq/lSuYQRim3dUXlXeA0IqwuZGicdG5ZTf
 github.com/klauspost/compress v1.20.3/go.mod h1:LUdAzn7YLVvxLpc7y3V1m40wESHTgc1422pwwBSKYuI=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
-github.com/molecule-man/go-brrr v1.3.2-0.20261025062155-423c5e273a33 h1:FpII3hBhTNMLakdoIawIJ6PCORt3SPWTv+43b0WQ9S0=
-github.com/molecule-man/go-brrr v1.3.2-0.20261025062155-423c5e273a33/go.mod h1:7ybW6/7gA3oKY45jOfVNjSJDtrr6ea4tzbsTkjmQDC4=
+github.com/molecule-man/go-brrr v1.3.1 h1:EwaJUzRIlp/dFmIpzq4J17CA5Zi5OHo2vOGmu09hF1w=
+github.com/molecule-man/go-brrr v1.3.1/go.mod h1:7ybW6/7gA3oKY45jOfVNjSJDtrr6ea4tzbsTkjmQDC4=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
