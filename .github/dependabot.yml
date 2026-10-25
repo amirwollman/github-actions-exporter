@@ -2,8 +2,9 @@
 # Alpine only reach the image when these bumps are merged. Dependabot has no
 # security advisories for Docker images, so base images are checked daily with
 # the shortest valid cooldown, 1 day (Dependabot's default is 3). CI scans the
-# shipped binary and fails once its Go is stale: for an urgent Go security
-# release, bump the golang digest by hand rather than wait.
+# shipped binary and fails if its Go has a known vulnerability in code it
+# links: for an urgent Go security release, bump the golang digest by hand
+# rather than wait.
 version: 2
 updates:
   - package-ecosystem: docker

@@ -41,11 +41,13 @@ jobs:
 
       # Newest 1.27 patch rather than go.mod's minimum, so the release binary
       # picks up stdlib security fixes without waiting for a go.mod bump.
+      # No dependency cache in the job that holds write tokens: Go trusts
+      # what's already in GOMODCACHE, so a poisoned cache would ship.
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version: "1.27.x"
           check-latest: true
-          cache-dependency-path: go.sum
+          cache: false
 
       - uses: nowsprinting/check-version-format-action@22aede0d4fcf61035e89d0682f36ca917a277505 # v3.2.10
         id: version
