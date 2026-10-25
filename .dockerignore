@@ -2,9 +2,11 @@
 .mcp.json
 .DS_Store
 bin
-*.pem
-*.key
-.env
-.env.*
+**/*.pem
+**/*.key
+**/*private_key*
+**/*private-key*
+**/.env
+**/.env.*
 .idea
 .vscode

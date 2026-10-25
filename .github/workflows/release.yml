@@ -10,8 +10,7 @@ on:
       - "v*"
 
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 env:
   APP_NAME: github-actions-exporter
@@ -19,14 +18,23 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   build:
     name: Build
+    needs: ci
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
+      # No persisted token: .git is part of the image build context.
       - uses: actions/checkout@a37ce9120846195fa4ece8f58b268e6043cb2f26 # v3.7.0
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # Newest 1.27 patch rather than go.mod's minimum, so the release binary
       # picks up stdlib security fixes without waiting for a go.mod bump.
