@@ -25,7 +25,7 @@ jobs:
         run: sh scripts/check-runner-node.sh
 
       # The same toolchain release.yml ships with: the newest 1.27 patch.
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true
@@ -86,7 +86,7 @@ jobs:
 
       # The image's builder is digest-pinned and can lag the newest Go patch,
       # so scan the binary that actually ships rather than trust the test job.
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.x"
           check-latest: true
