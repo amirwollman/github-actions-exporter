@@ -35,8 +35,8 @@ jobs:
             echo "::error::check rejected ISRG Root X1"
             exit 1
           }
-          out="$(sh scripts/check-distrusted-certs.sh scripts/testdata/emsign-ecc-root-g3.pem 2>&1)"
-          rc=$?
+          rc=0
+          out="$(sh scripts/check-distrusted-certs.sh scripts/testdata/emsign-ecc-root-g3.pem 2>&1)" || rc=$?
           echo "$out"
           # Exit 1 with the match message, not any failure: a missing fixture
           # or a broken openssl also exits non-zero.
