@@ -10,7 +10,7 @@ require (
 	github.com/gregjones/httpcache v0.0.0-20190611155906-901d90724c79
 	github.com/prometheus/client_golang v1.25.0
 	github.com/urfave/cli/v2 v2.27.7
-	github.com/valyala/fasthttp v1.76.0
+	github.com/valyala/fasthttp v1.77.0
 	golang.org/x/oauth2 v0.37.0
 )
 
